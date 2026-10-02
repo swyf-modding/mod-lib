@@ -260,6 +260,24 @@ not much of a check.
 Because the library is a submodule, a build of a mod needs
 `git clone --recurse-submodules`, or `git submodule update --init --recursive` in an existing clone.
 
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) is in two tiers, because of that dependency:
+
+| Job | Runner | What |
+|---|---|---|
+| `tests` | hosted, any OS | the behaviour tests — pure BCL, no game |
+| `build` | self-hosted, or by hand | the real compile, the API surface check, an artefact |
+
+`build` skips itself with a `::notice::` when there is no game, rather than failing, so a green run
+never quietly means "nothing was compiled". A fork's pull request skips it deliberately: there is no
+game there, and asking would just queue forever against a runner that never appears.
+
+To use a labelled runner rather than any `self-hosted` machine, set a repository variable:
+
+    SWYM_RUNNER = self-hosted, windows, scamwyf
+
+[`Launcher`](../Launcher) has no such split — it compiles against the .NET Framework reference
+assemblies and stages its own Cecil, so a hosted Windows runner can build and smoke-test it outright.
+
 ### The one build rule that matters
 
 Compilation uses `-nostdlib+` against **the game's own `mscorlib.dll`**, not a reference assembly.

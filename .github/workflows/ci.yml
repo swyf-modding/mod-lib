@@ -1,0 +1,91 @@
+name: ci
+
+# Tests the library, and builds it when the game's assemblies are available.
+#
+# The library compiles with -nostdlib+ against the game's own mscorlib, so a hosted runner cannot
+# build it: there is no Steam, and the game is not ours to redistribute. Two tiers, then:
+#
+#   tests    - always runs. The behaviour tests use nothing but the BCL and compile the real source
+#              files, so they work anywhere and catch the logic that a compile cannot.
+#   build    - runs only where the game is present: on a self-hosted runner, or on a hosted runner
+#              given the assemblies as an artifact or secret. This is the tier that catches a stripped
+#              API the build calls, which is the failure mode that matters most here.
+#
+# The build job is skipped rather than failed when it cannot run, and says so, so a green run never
+# quietly means "nothing was compiled".
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    name: Behaviour tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+
+      # Each project compiles the source file it covers rather than a copy, so copy them in first
+      # exactly as build.ps1 would.
+      # No working-directory on these: the paths are relative to the repository root, and the copy has
+      # to be made from there too. Running from tests\watcher instead would break the cp.
+      - name: Run the ConfigWatcher tests
+        run: |
+          cp src/config/ConfigWatcher.cs tests/watcher/ConfigWatcher.cs
+          dotnet run --project tests/watcher/WatcherTests.csproj
+
+      - name: Run the window geometry tests
+        run: |
+          cp src/ui/WindowGeometry.cs tests/window/WindowGeometry.cs
+          dotnet run --project tests/window/WindowGeometryTests.csproj
+
+  build:
+    name: Build against the game
+    runs-on: ${{ vars.SWYM_RUNNER || 'self-hosted' }}
+    # Only on the default branch and by hand. A pull request from a fork has no game, so asking for
+    # this would sit forever on a runner that never appears.
+    if: >-
+      github.event_name != 'pull_request'
+      && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Look for the game
+        id: game
+        shell: pwsh
+        run: |
+          $dir = $env:SWYG_GAME_DIR
+          if (-not $dir) {
+            $dir = "$env:ProgramFiles(x86)\Steam\steamapps\common\Scam With Your Friends Playtest"
+          }
+          if (-not (Test-Path "$dir\Scam With Your Friends_Data\Managed\mscorlib.dll")) {
+            Write-Host "::notice::No game at $dir - skipping the build tier. The behaviour tests still ran."
+            Write-Host "::notice::On a self-hosted runner, install the game and set SWYG_GAME_DIR."
+            'found=false' >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          "SWYG_GAME_DIR=$dir" >> $env:GITHUB_ENV
+          'found=true' >> $env:GITHUB_OUTPUT
+          Write-Host "game: $dir"
+
+      - name: Build and test
+        if: steps.game.outputs.found == 'true'
+        shell: pwsh
+        run: .\build.ps1 -LibraryOnly -Test -NoCopy
+
+      - uses: actions/upload-artifact@v4
+        if: steps.game.outputs.found == 'true'
+        with:
+          name: ScamWYF.Modding.Core
+          path: bin/ScamWYF.Modding.Core.dll
+          if-no-files-found: error
