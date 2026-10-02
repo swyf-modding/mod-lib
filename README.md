@@ -2,6 +2,7 @@
 
 # ScamWYF.Modding.Core
 
+![license](https://img.shields.io/badge/license-MIT-blue)
 ![last commit](https://img.shields.io/github/last-commit/swyf-modding/mod-lib?label=last%20commit&color=blue)
 ![game build](https://img.shields.io/badge/game-v82--playtest-blue)
 ![Unity](https://img.shields.io/badge/Unity-6000.3.10f1-blue)
@@ -32,6 +33,7 @@
 - [Project Structure](#project-structure)
 - [Continuous Builds](#continuous-builds)
 - [Security](#security)
+- [License](#license)
 - [Related Projects](#related-projects)
 
 ---
@@ -323,6 +325,15 @@ the API keys mods configure.
 The project deliberately does not redistribute proprietary assemblies: the game's own assemblies stay in
 your install, and `vendor\` carries only what is ours to give away. Because this is game-mod software,
 install only releases you trust.
+
+---
+
+## License
+
+MIT — Copyright © 2026 Ras_rap. See [LICENSE](LICENSE).
+
+The mods that use this library are separate works under their own licences. Nothing here grants any
+right to the game's own assemblies, which are not redistributed.
 
 ---
 
