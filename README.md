@@ -3,7 +3,6 @@
 # ScamWYF.Modding.Core
 
 ![license](https://img.shields.io/badge/license-MIT-blue)
-![last commit](https://img.shields.io/github/last-commit/swyf-modding/mod-lib?label=last%20commit&color=blue)
 ![game build](https://img.shields.io/badge/game-v82--playtest-blue)
 ![Unity](https://img.shields.io/badge/Unity-6000.3.10f1-blue)
 ![BepInEx](https://img.shields.io/badge/BepInEx-5.4.23.5-blue)
