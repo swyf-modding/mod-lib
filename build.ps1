@@ -73,6 +73,11 @@ $ErrorActionPreference = 'Stop'
     Finds the game install: an explicit path, then SWYG_GAME_DIR, then the usual Steam locations.
     A candidate only counts if it has both the game's Managed folder and a BepInEx install, since
     without both there is nothing to compile against.
+
+    SWYG_GAME_DIR is the one a build agent wants: it has no Steam, so nothing else would resolve. The
+    game is not redistributable, so an agent has to be given the Managed folder and BepInEx\core by
+    whatever it is already set up to use - a cached artifact, a mounted copy, or a self-hosted runner
+    where the game is installed.
 #>
 function Resolve-GameDir {
     param([string]$Explicit)

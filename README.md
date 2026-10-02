@@ -247,6 +247,19 @@ one, or it finds `csc.exe` from VS Build Tools, or the copy inside a .NET SDK.
 `-GameDir` is auto-detected (Steam paths, plus `SWYG_GAME_DIR`); pass it explicitly if the game is
 somewhere unusual.
 
+### On a build agent
+
+The build compiles against the game's own assemblies, so it needs
+`Scam With Your Friends_Data\Managed` and `BepInEx\core` to exist somewhere. The game is not
+redistributable, so a runner has to be given them another way — a cached artifact, a mounted copy, or
+a self-hosted runner with the game installed. Set `SWYG_GAME_DIR` to the folder containing both and
+everything else is found. `.\build.ps1 -NoCopy -Test` is the command to run: `-NoCopy` because an agent
+should not be writing to a game install it does not own, `-Test` because a build that only compiles is
+not much of a check.
+
+Because the library is a submodule, a build of a mod needs
+`git clone --recurse-submodules`, or `git submodule update --init --recursive` in an existing clone.
+
 ### The one build rule that matters
 
 Compilation uses `-nostdlib+` against **the game's own `mscorlib.dll`**, not a reference assembly.
