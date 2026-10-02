@@ -1,13 +1,19 @@
+using System;
 using System.Collections.Generic;
 using System.Text;
+using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace ScamWYF.Modding.Core
 {
     /// <summary>
     /// The mods that came up on the shared library this session, plus a report of anything that
-    /// collided. The mod handler renders this; it is the reason collisions are visible instead of
-    /// being something you have to read LogOutput.log to discover.
+    /// collided.
     /// </summary>
+    /// <remarks>
+    /// The menu renders this; it is the reason collisions are visible instead of being something you
+    /// have to read LogOutput.log to discover.
+    /// </remarks>
     public static class ModRegistry
     {
         private static readonly List<ScamMod> Loaded = new List<ScamMod>();
@@ -23,15 +29,18 @@ namespace ScamWYF.Modding.Core
         public static bool Register(ScamMod mod)
         {
             if (mod == null) return false;
+
             lock (Loaded)
             {
                 foreach (var existing in Loaded)
                 {
                     if (existing.ModId != mod.ModId) continue;
+
                     Rejections.Add(mod.DisplayName + " (" + mod.ModId + ") - already loaded as " +
                                    existing.DisplayName + " (" + existing.ModVersion + ")");
                     return false;
                 }
+
                 Loaded.Add(mod);
             }
             return true;
@@ -54,6 +63,7 @@ namespace ScamWYF.Modding.Core
                     return true;
                 }
             }
+
             mod = null;
             return false;
         }
@@ -65,8 +75,8 @@ namespace ScamWYF.Modding.Core
         }
 
         /// <summary>
-        /// Everything that is wrong right now, one line each, or null when nothing is. This is
-        /// what the mod list shows under "collisions".
+        /// Everything that is wrong right now, one line each, or null when nothing is. This is what the
+        /// menu's Mods tab shows under "collisions".
         /// </summary>
         public static string CollisionReport()
         {
@@ -75,7 +85,9 @@ namespace ScamWYF.Modding.Core
             lock (Loaded)
             {
                 foreach (var rejection in Rejections)
+                {
                     report.AppendLine("duplicate mod id: " + rejection);
+                }
             }
 
             report.Append(PatchCoordinator.ConflictReport());

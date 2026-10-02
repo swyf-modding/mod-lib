@@ -1,9 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Text;
 using BepInEx.Logging;
-using UnityEngine;
 using UnityEngine.InputSystem;
+using ScamWYF.Modding.Core.Ui;
 
 namespace ScamWYF.Modding.Core
 {
@@ -15,13 +14,16 @@ namespace ScamWYF.Modding.Core
     /// neither one gets it cleanly and there is nothing in the log saying why. Bindings are
     /// registered here instead, duplicates are reported, and the poll happens in one place.
     ///
-    /// Both fire if two mods bind the same key: silently ignoring the second one would just move
-    /// the confusion somewhere less obvious. The conflict is reported in the log and by the mod
-    /// handler.
+    /// Both fire if two mods bind the same key: silently ignoring the second would just move the
+    /// confusion somewhere less obvious. The conflict is reported in the log and on the menu's Mods
+    /// tab.
+    ///
+    /// The library binds its own hotkey against its own id rather than any mod's, so the menu has a key
+    /// whether or not any particular mod is installed.
     /// </remarks>
     public static class Hotkeys
     {
-        /// <summary>One key, optionally with modifiers, owned by one mod.</summary>
+        /// <summary>One key, optionally with modifiers, owned by one thing.</summary>
         public sealed class Binding
         {
             public string OwnerId;
@@ -55,21 +57,48 @@ namespace ScamWYF.Modding.Core
             }
         }
 
-        private sealed class Runner : MonoBehaviour
-        {
-            private void Update()
-            {
-                Hotkeys.Pump();
-            }
-        }
-
         private static readonly List<Binding> Registry = new List<Binding>();
-        private static Runner _runner;
 
         /// <summary>Every live binding, in registration order.</summary>
         public static Binding[] Bindings
         {
             get { lock (Registry) { return Registry.ToArray(); } }
+        }
+
+        /// <summary>One owner's bindings, for its own menu page.</summary>
+        public static Binding[] ForOwner(string ownerId)
+        {
+            var mine = new List<Binding>();
+            if (string.IsNullOrEmpty(ownerId)) return mine.ToArray();
+
+            lock (Registry)
+            {
+                foreach (var binding in Registry)
+                {
+                    if (binding.OwnerId == ownerId) mine.Add(binding);
+                }
+            }
+            return mine.ToArray();
+        }
+
+        /// <summary>Whether the library's own menu hotkey has been bound.</summary>
+        public static bool MenuBound
+        {
+            get
+            {
+                foreach (var binding in Bindings)
+                {
+                    if (binding.OwnerId != LibraryRuntime.LibraryId) continue;
+                    if (IsMenuDescription(binding.Description)) return true;
+                }
+                return false;
+            }
+        }
+
+        internal static bool IsMenuDescription(string description)
+        {
+            return description != null &&
+                   description.IndexOf("mod menu", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         /// <summary>
@@ -80,12 +109,22 @@ namespace ScamWYF.Modding.Core
             params Key[] modifiers)
         {
             if (owner == null) throw new ArgumentNullException("owner");
+            return Register(owner.ModId, owner.ModLog, key, description, onPressed, modifiers);
+        }
+
+        /// <summary>
+        /// Claim a key on behalf of something that is not a mod. Used by the library for its own menu
+        /// hotkey, which has to exist regardless of which mods are installed.
+        /// </summary>
+        internal static Binding Register(string ownerId, ManualLogSource log, Key key, string description,
+            Action onPressed, params Key[] modifiers)
+        {
             if (onPressed == null) throw new ArgumentNullException("onPressed");
 
             var binding = new Binding
             {
-                OwnerId = owner.ModId,
-                OwnerName = owner.DisplayName,
+                OwnerId = ownerId ?? LibraryRuntime.LibraryId,
+                OwnerName = ownerId == LibraryRuntime.LibraryId ? "Scam WYF Modding" : ownerId,
                 Description = description ?? "",
                 Key = key,
                 OnPressed = onPressed
@@ -96,7 +135,9 @@ namespace ScamWYF.Modding.Core
                 foreach (var modifier in modifiers)
                 {
                     if (modifier != Key.None && !binding.Modifiers.Contains(modifier))
+                    {
                         binding.Modifiers.Add(modifier);
+                    }
                 }
             }
 
@@ -107,33 +148,51 @@ namespace ScamWYF.Modding.Core
                 Registry.Add(binding);
             }
 
-            EnsureRunner();
-            owner.ModLog.LogInfo("Hotkey " + binding.Signature + " - " + binding.Description + ".");
+            // The library's runner polls these each frame; it is created once, on demand.
+            LibraryRuntime.Start();
 
-            if (clashes.Count > 0)
+            if (log != null)
             {
-                owner.ModLog.LogWarning(
-                    binding.Signature + " is already bound by " + Join(clashes) +
-                    ". Both will fire; give one of them a different key or a modifier.");
+                log.LogInfo("Hotkey " + binding.Signature + " - " + binding.Description + ".");
+
+                if (clashes.Count > 0)
+                {
+                    log.LogWarning(binding.Signature + " is already bound by " + Join(clashes) +
+                                   ". Both will fire; give one of them a different key or a modifier.");
+                }
             }
 
             return binding;
         }
 
-        /// <summary>Drop every binding a mod owns. Called for you when a mod unloads.</summary>
-        public static void RemoveOwner(string modId)
+        /// <summary>Drop every binding something owns. Called for you when a mod unloads.</summary>
+        public static void RemoveOwner(string ownerId)
         {
-            if (string.IsNullOrEmpty(modId)) return;
+            if (string.IsNullOrEmpty(ownerId)) return;
             lock (Registry)
             {
-                Registry.RemoveAll(binding => binding.OwnerId == modId);
+                Registry.RemoveAll(binding => binding.OwnerId == ownerId);
             }
         }
 
-        /// <summary>Keys claimed by more than one mod, as text, or null when there are none.</summary>
+        /// <summary>
+        /// Re-point a binding at a different key, for a hotkey the user has just changed in the menu.
+        /// </summary>
+        public static bool Rebind(Binding binding, Key key)
+        {
+            if (binding == null) return false;
+
+            lock (Registry)
+            {
+                binding.Key = key;
+            }
+            return true;
+        }
+
+        /// <summary>Keys claimed by more than one owner, as text, or null when there are none.</summary>
         public static string ConflictReport()
         {
-            var report = new StringBuilder();
+            var report = new System.Text.StringBuilder();
 
             foreach (var group in ClashGroups())
             {
@@ -148,7 +207,8 @@ namespace ScamWYF.Modding.Core
 
         // ---------------------------------------------------------------- internals
 
-        private static void Pump()
+        /// <summary>Poll every binding. Called once a frame by the library's runner.</summary>
+        internal static void Pump()
         {
             var keyboard = Keyboard.current;
             if (keyboard == null) return;
@@ -158,17 +218,20 @@ namespace ScamWYF.Modding.Core
 
             foreach (var binding in snapshot)
             {
+                // Skipped while the menu has focus, so typing "f1" into a text field does not toggle it.
+                if (UiPanel.MenuHasFocus) continue;
+
                 var control = keyboard[binding.Key];
                 if (control == null || !control.wasPressedThisFrame) continue;
                 if (!ModifiersHeld(keyboard, binding)) continue;
 
                 try
                 {
-                    binding.OnPressed();
+                    if (binding.OnPressed != null) binding.OnPressed();
                 }
                 catch (Exception ex)
                 {
-                    Log.LogError("Hotkey " + binding.Signature + " (" + binding.OwnerName + ") threw: " + ex);
+                    UiLog.Error("Hotkey " + binding.Signature + " (" + binding.OwnerName + ") threw: " + ex);
                 }
             }
         }
@@ -194,15 +257,17 @@ namespace ScamWYF.Modding.Core
 
                 var same = true;
                 for (int i = 0; i < existing.Modifiers.Count && same; i++)
+                {
                     same = existing.Modifiers.Contains(candidate.Modifiers[i]) &&
                            candidate.Modifiers.Contains(existing.Modifiers[i]);
+                }
                 if (same) clashes.Add(existing);
             }
             return clashes;
         }
 
         /// <summary>
-        /// Bindings sharing a key with a binding from a different mod, one list per key. A mod
+        /// Bindings sharing a key with a binding from a different owner, one list per key. One owner
         /// binding the same key twice is its own business and is not a collision.
         /// </summary>
         private static List<List<Binding>> ClashGroups()
@@ -239,27 +304,6 @@ namespace ScamWYF.Modding.Core
             var names = new List<string>();
             foreach (var binding in bindings) names.Add(binding.OwnerName + " (" + binding.OwnerId + ")");
             return string.Join(", ", names.ToArray());
-        }
-
-        private static ManualLogSource _log;
-
-        private static ManualLogSource Log
-        {
-            get
-            {
-                if (_log == null) _log = BepInEx.Logging.Logger.CreateLogSource("ScamWYF.Modding.Hotkeys");
-                return _log;
-            }
-        }
-
-        private static void EnsureRunner()
-        {
-            if (_runner != null) return;
-
-            var host = new GameObject("ScamWYF.Modding.Hotkeys");
-            UnityEngine.Object.DontDestroyOnLoad(host);
-            host.hideFlags = HideFlags.HideAndDontSave;
-            _runner = host.AddComponent<Runner>();
         }
     }
 }

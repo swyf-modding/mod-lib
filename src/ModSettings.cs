@@ -1,6 +1,9 @@
 using System;
+using System.IO;
 using BepInEx.Configuration;
 using BepInEx.Logging;
+using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace ScamWYF.Modding.Core
 {
@@ -8,12 +11,16 @@ namespace ScamWYF.Modding.Core
     /// Config binding that survives a hand-edited file.
     /// </summary>
     /// <remarks>
-    /// Config files for this game are meant to be edited in a text editor, so "MinMaxTokens =
-    /// lots" has to mean something other than a mod that throws during Awake. Every read here is
-    /// range-checked and falls back to a known-good value, complaining in the log when it does.
+    /// Config files for this game are meant to be edited in a text editor, so "MinMaxTokens = lots" has
+    /// to mean something other than a mod that throws during Awake. Every read here is range-checked and
+    /// falls back to a known-good value, complaining in the log when it does.
     ///
     /// BepInEx already gives each plugin its own .cfg named after its GUID, so keys cannot collide
     /// across mods. What this adds is not letting a bad value take the mod down with it.
+    ///
+    /// Ranges declared here are also what make the in-game config editor useful: a setting bound with a
+    /// known range is drawn as a slider, and the mod's own description becomes the help text. Nothing
+    /// extra to declare for the editor to be worth having.
     /// </remarks>
     public sealed class ModSettings
     {
@@ -22,8 +29,8 @@ namespace ScamWYF.Modding.Core
         private readonly string _modId;
 
         /// <summary>
-        /// ConfigEntry does not expose its own definition, so the section/key each entry was bound
-        /// under is remembered here. It is only used to name the setting in a warning.
+        /// ConfigEntry does not expose its own definition, so the section/key each entry was bound under
+        /// is remembered here. Only used to name a setting in a warning.
         /// </summary>
         private readonly System.Collections.Generic.Dictionary<object, string> _labels =
             new System.Collections.Generic.Dictionary<object, string>();
@@ -41,20 +48,75 @@ namespace ScamWYF.Modding.Core
             get { return _file; }
         }
 
+        /// <summary>Where this mod's config file lives.</summary>
+        public string FilePath
+        {
+            get { return _file.ConfigFilePath; }
+        }
+
         public ConfigEntry<T> Bind<T>(string section, string key, T defaultValue, string description)
         {
             var entry = _file.Bind(section, key, defaultValue, description);
-            _labels[entry] = section + " / " + key;
+            Remember(entry, section, key);
+            return entry;
+        }
+
+        /// <summary>
+        /// Bind a number with a range. The range is enforced on every read, and the config editor uses
+        /// it to draw a slider instead of a free-text field.
+        /// </summary>
+        public ConfigEntry<T> Bind<T>(string section, string key, T defaultValue, T min, T max,
+            string description) where T : IComparable
+        {
+            var entry = _file.Bind(section, key, defaultValue,
+                new ConfigDescription(description, new AcceptableValueRange<T>(min, max)));
+            Remember(entry, section, key);
             return entry;
         }
 
         /// <summary>Bind a key, for use with the shared hotkey registry.</summary>
-        public ConfigEntry<UnityEngine.InputSystem.Key> BindKey(string section, string key,
-            UnityEngine.InputSystem.Key defaultValue, string description)
+        public ConfigEntry<Key> BindKey(string section, string key, Key defaultValue, string description)
         {
             var entry = _file.Bind(section, key, defaultValue, description);
-            _labels[entry] = section + " / " + key;
+            Remember(entry, section, key);
             return entry;
+        }
+
+        /// <summary>
+        /// Bind one of a fixed set of values. Used for enums, which the config editor renders as a
+        /// dropdown by reading the type rather than needing the choices declared.
+        /// </summary>
+        /// <remarks>
+        /// No AcceptableValueList here: BepInEx's requires IEquatable, which enums do not implement, and
+        /// the editor gets the same dropdown either way from the type. The choices are still accepted so
+        /// a caller can be explicit about which members are valid - a "None" member the mod does not
+        /// handle is better left out.
+        /// </remarks>
+        public ConfigEntry<T> BindChoice<T>(string section, string key, T defaultValue, T[] choices,
+            string description) where T : struct
+        {
+            var entry = _file.Bind(section, key, defaultValue, description);
+            Remember(entry, section, key);
+            return entry;
+        }
+
+        /// <summary>
+        /// Bind one of a fixed set of non-enum values, with BepInEx enforcing the list on every read.
+        /// Named differently from BindChoice because two overloads differing only by constraint cannot
+        /// coexist.
+        /// </summary>
+        public ConfigEntry<T> BindFromList<T>(string section, string key, T defaultValue, T[] choices,
+            string description) where T : IEquatable<T>
+        {
+            var entry = _file.Bind(section, key, defaultValue,
+                new ConfigDescription(description, new AcceptableValueList<T>(choices)));
+            Remember(entry, section, key);
+            return entry;
+        }
+
+        private void Remember(object entry, string section, string key)
+        {
+            _labels[entry] = section + " / " + key;
         }
 
         private string Label(object entry)
@@ -67,22 +129,16 @@ namespace ScamWYF.Modding.Core
         public int Int(ConfigEntry<int> entry, int min, int max)
         {
             int value;
-            try
+            if (!TryRead(entry, out value, min))
             {
-                value = entry.Value;
-            }
-            catch (Exception ex)
-            {
-                _log.LogWarning(_modId + ": " + Label(entry) + " is unreadable (" + ex.Message +
-                                "); using " + min + ".");
+                WarnUnreadable(entry, min);
                 return min;
             }
 
             if (value >= min && value <= max) return value;
 
             var clamped = Clamp(value, min, max);
-            _log.LogWarning(_modId + ": " + Label(entry) + " is " + value + ", outside " + min + ".." + max +
-                            "; using " + clamped + ".");
+            WarnOutOfRange(entry, value, min, max, clamped);
             return clamped;
         }
 
@@ -90,22 +146,16 @@ namespace ScamWYF.Modding.Core
         public float Float(ConfigEntry<float> entry, float min, float max)
         {
             float value;
-            try
+            if (!TryRead(entry, out value, min))
             {
-                value = entry.Value;
-            }
-            catch (Exception ex)
-            {
-                _log.LogWarning(_modId + ": " + Label(entry) + " is unreadable (" + ex.Message +
-                                "); using " + min + ".");
+                WarnUnreadable(entry, min);
                 return min;
             }
 
             if (value >= min && value <= max) return value;
 
             var clamped = Clamp(value, min, max);
-            _log.LogWarning(_modId + ": " + Label(entry) + " is " + value + ", outside " + min + ".." + max +
-                            "; using " + clamped + ".");
+            WarnOutOfRange(entry, value, min, max, clamped);
             return clamped;
         }
 
@@ -118,8 +168,11 @@ namespace ScamWYF.Modding.Core
             }
             catch (Exception ex)
             {
-                _log.LogWarning(_modId + ": " + Label(entry) + " is not a valid " + typeof(T).Name +
-                                " (" + ex.Message + "); using " + fallback + ".");
+                if (_log != null)
+                {
+                    _log.LogWarning(_modId + ": " + Label(entry) + " is not a valid " + typeof(T).Name +
+                                    " (" + ex.Message + "); using " + fallback + ".");
+                }
                 return fallback;
             }
         }
@@ -133,7 +186,7 @@ namespace ScamWYF.Modding.Core
                 if (string.IsNullOrEmpty(value) || value.Trim().Length == 0) return fallbackWhenBlank;
                 return value.Trim();
             }
-            catch
+            catch (Exception)
             {
                 return fallbackWhenBlank;
             }
@@ -146,7 +199,7 @@ namespace ScamWYF.Modding.Core
             {
                 return entry.Value ?? "";
             }
-            catch
+            catch (Exception)
             {
                 return "";
             }
@@ -158,12 +211,39 @@ namespace ScamWYF.Modding.Core
             {
                 return entry.Value;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _log.LogWarning(_modId + ": " + Label(entry) + " is unreadable (" + ex.Message +
-                                "); using " + fallback + ".");
+                WarnUnreadable(entry, fallback);
                 return fallback;
             }
+        }
+
+        private bool TryRead<T>(ConfigEntry<T> entry, out T value, T fallback)
+        {
+            try
+            {
+                value = entry.Value;
+                return true;
+            }
+            catch (Exception)
+            {
+                value = fallback;
+                return false;
+            }
+        }
+
+        private void WarnUnreadable(object entry, object fallback)
+        {
+            if (_log == null) return;
+            _log.LogWarning(_modId + ": " + Label(entry) + " could not be read from " + FilePath +
+                            "; using " + fallback + ".");
+        }
+
+        private void WarnOutOfRange<T>(object entry, T value, T min, T max, T clamped)
+        {
+            if (_log == null) return;
+            _log.LogWarning(_modId + ": " + Label(entry) + " is " + value + ", outside " + min + ".." + max +
+                            "; using " + clamped + ".");
         }
 
         private static int Clamp(int value, int min, int max)

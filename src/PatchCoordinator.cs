@@ -48,6 +48,22 @@ namespace ScamWYF.Modding.Core
             get { lock (Records) { return Records.ToArray(); } }
         }
 
+        /// <summary>One mod's patches, for its own menu page.</summary>
+        public static PatchRecord[] ForOwner(string ownerId)
+        {
+            var mine = new List<PatchRecord>();
+            if (string.IsNullOrEmpty(ownerId)) return mine.ToArray();
+
+            lock (Records)
+            {
+                foreach (var record in Records)
+                {
+                    if (record.OwnerId == ownerId) mine.Add(record);
+                }
+            }
+            return mine.ToArray();
+        }
+
         /// <summary>Methods more than one mod has patched.</summary>
         public static PatchConflict[] ConflictingMethods
         {

@@ -4,18 +4,24 @@ using HarmonyLib;
 using Newtonsoft.Json.Linq;
 using ScamWYF.Modding.Core;
 using UnityEngine;
-using UnityEngine.InputSystem;
+using UnityEngine.UIElements;
 
 namespace ExampleMod
 {
     /// <summary>
-    /// The smallest mod that uses every shared service. Copy this folder, rename the namespace and
-    /// the guid, and you have a working mod.
+    /// The smallest mod that uses every shared service. Copy this folder, rename the namespace and the
+    /// guid, and you have a working mod.
     /// </summary>
     /// <remarks>
-    /// Note what is not here: no Awake, no Update, no OnGUI. ScamMod seals those. OnModLoad runs
-    /// instead, exceptions in it are logged instead of taking the session down, and anything the
-    /// mod registered with the shared services is unregistered when it unloads.
+    /// Note what is not here: no Awake, no Update, no OnGUI, and no window. ScamMod seals the Unity
+    /// callbacks and handles them for you, and the mod menu is built for you - press F1 and this mod has
+    /// a tab showing its patches and its settings, drawn in the base game's own UI theme.
+    ///
+    /// The two things a mod normally has to get right by hand are already done:
+    ///
+    ///  - patches go through the coordinator, so two mods wanting the same method is reported rather
+    ///    than being a mystery;
+    ///  - the config is watched, so editing the .cfg in a text editor takes effect without a restart.
     /// </remarks>
     [BepInPlugin(PluginGuid, "Example Mod", "1.0.0")]
     public sealed class Plugin : ScamMod
@@ -25,16 +31,21 @@ namespace ExampleMod
         // Unity build this was written against. A mismatch is a warning, not an error.
         private const string BuiltAgainst = "6000.3.10f1";
 
-        private ImGuiHost.Window _window;
         private HarmonyMethod _prefix;
+        private int _requestsSeen;
 
         protected override void OnModLoad()
         {
             GameBuild.CheckUnityVersion(ModLog, ModId, BuiltAgainst);
 
-            var settings = new ModSettings(base.Config, ModLog, ModId);
-            var toggle = settings.BindKey("General", "ToggleKey", Key.F1, "Opens this mod's window.");
-            var greetingLength = settings.Bind("General", "GreetingLength", 24, "How long the greeting is.");
+            // Settings gives the in-game editor something to draw: a setting bound with a range becomes
+            // a slider, and its description becomes the help text.
+            var settings = Settings;
+            var greetingLength = settings.Bind("General", "GreetingLength", 24, 1, 200,
+                "How long the greeting is. Also the slider on this tab.");
+
+            // Pick up an edit to the .cfg while the game is running.
+            WatchConfig();
 
             _prefix = new HarmonyMethod(AccessTools.Method(typeof(Plugin), nameof(Prefix)));
 
@@ -51,17 +62,13 @@ namespace ExampleMod
                 ModLog.LogWarning("Running without the request counter.");
             }
 
-            _window = ImGuiHost.AddWindow(this, "Example", new Rect(60f, 60f, 420f, 200f), Draw);
-
-            Hotkeys.Register(this, toggle.Value, "Toggle the example window", _window.Toggle);
-
             ModLog.LogInfo("Greeting length is " + settings.Int(greetingLength, 1, 200) + ".");
         }
 
         protected override void OnModUnload()
         {
-            // Harmony patches, hotkeys and windows are cleaned up by ScamMod. Anything else you
-            // started - coroutines, sockets, DontDestroyOnLoad objects - is yours to stop here.
+            // Harmony patches, hotkeys, windows and menu tabs are cleaned up by ScamMod. Anything else
+            // you started - coroutines, sockets, DontDestroyOnLoad objects - is yours to stop here.
         }
 
         private static bool Prefix()
@@ -70,10 +77,26 @@ namespace ExampleMod
             return true;
         }
 
-        private void Draw(int id)
+        /// <summary>
+        /// Replace the tab ScamMod gave this mod with one of your own. Only worth doing when there is
+        /// something worth showing; the default tab already lists patches, hotkeys and every setting.
+        /// </summary>
+        private void RegisterPage()
         {
-            GUILayout.Label("Hello. This window is drawn by the shared IMGUI host.");
-            if (GUILayout.Button("Close")) _window.Visible = false;
+            ModMenu.AddPage(this, "Example", BuildPage, -10);
+        }
+
+        private void BuildPage(VisualElement page)
+        {
+            var scroll = Widgets.Scroll(page);
+
+            Widgets.FieldRow(scroll, "Requests seen", _requestsSeen.ToString());
+            Widgets.Paragraph(scroll, "This tab replaced the default one, so the settings editor is not " +
+                                      "shown here. Delete the AddPage call and it comes back.");
+
+            var row = Widgets.WrapRow(scroll);
+            Widgets.DescribedButton(row, "Reset counter", "Zero the request count",
+                delegate { _requestsSeen = 0; ModMenu.Refresh(); });
         }
     }
 }

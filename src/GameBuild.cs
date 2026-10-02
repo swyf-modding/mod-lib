@@ -62,9 +62,12 @@ namespace ScamWYF.Modding.Core
             if (string.IsNullOrEmpty(expected)) return true;
             if (string.Equals(expected, UnityVersion, StringComparison.Ordinal)) return true;
 
-            log.LogWarning(modId + " was written against Unity " + expected +
-                           " but this is Unity " + UnityVersion +
-                           ". It may still work; if anything misbehaves, rebuild against this build.");
+            if (log != null)
+            {
+                log.LogWarning(modId + " was written against Unity " + expected +
+                               " but this is Unity " + UnityVersion +
+                               ". It may still work; if anything misbehaves, rebuild against this build.");
+            }
             return false;
         }
 
@@ -112,10 +115,67 @@ namespace ScamWYF.Modding.Core
                 "Nothing was patched; the game keeps running as it shipped.");
 
             // Worth saying out loud: a renamed or re-signatured method is the usual cause, and
-            // AccessUtils finds methods by exact parameter types only.
+            // AccessTools finds methods by exact parameter types only.
             var candidates = FindSimilar(declaringType, methodName);
             if (candidates.Count > 0)
-                owner.ModLog.LogError("Closest matches in this build: " + string.Join(", ", candidates.ToArray()) + ".");
+            {
+                owner.ModLog.LogError("Closest matches in this build: " +
+                                      string.Join(", ", candidates.ToArray()) + ".");
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Find a type in the game's own assemblies by name, reporting a miss the same way a method
+        /// miss is reported.
+        /// </summary>
+        public static bool TryResolveType(ScamMod owner, string typeName, out Type type)
+        {
+            type = null;
+            try
+            {
+                type = AccessTools.TypeByName(typeName);
+            }
+            catch (Exception ex)
+            {
+                owner.ModLog.LogError("Could not look up the type " + typeName + ": " + ex.Message);
+                return false;
+            }
+
+            if (type != null) return true;
+
+            owner.ModLog.LogWarning(
+                "This build has no " + typeName + " (" + Describe() + "). " +
+                "The game was most likely updated and this mod needs rebuilding against it. " +
+                "The affected feature is off; everything else keeps working.");
+
+            return false;
+        }
+
+        /// <summary>
+        /// Find a field on a game type, reporting a miss the same way. Used by mods that read the
+        /// game's own UI state rather than patching it.
+        /// </summary>
+        public static bool TryResolveField(ScamMod owner, Type declaringType, string fieldName,
+            out FieldInfo field)
+        {
+            field = null;
+            try
+            {
+                field = AccessTools.Field(declaringType, fieldName);
+            }
+            catch (Exception ex)
+            {
+                owner.ModLog.LogError("Could not look up " + declaringType + "." + fieldName + ": " + ex.Message);
+                return false;
+            }
+
+            if (field != null) return true;
+
+            owner.ModLog.LogWarning(
+                declaringType + " has no " + fieldName + " field in this build (" + Describe() + "). " +
+                "The game was most likely updated and this mod needs rebuilding against it.");
 
             return false;
         }
@@ -148,7 +208,7 @@ namespace ScamWYF.Modding.Core
                 var value = read();
                 return string.IsNullOrEmpty(value) ? fallback : value;
             }
-            catch
+            catch (Exception)
             {
                 return fallback;
             }
