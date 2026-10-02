@@ -1,236 +1,185 @@
+<div align="center">
+
 # ScamWYF.Modding.Core
 
-The shared library for **Scam With Your Friends** mods. One repo of common code that every mod
-compiles into itself, so two mods cannot quietly fight over the same Harmony patch, the same
-hotkey or the same menu tab.
+![last commit](https://img.shields.io/github/last-commit/swyf-modding/mod-lib?label=last%20commit&color=blue)
+![game build](https://img.shields.io/badge/game-v82--playtest-blue)
+![Unity](https://img.shields.io/badge/Unity-6000.3.10f1-blue)
+![BepInEx](https://img.shields.io/badge/BepInEx-5.4.23.5-blue)
 
-Made against **Unity 6000.3.10f1**, Mono, managed stripping **on**.
+*Built with:*
 
-| Repo | What it is |
-|---|---|
-| **scam-wyf-modding-lib** (this one) | Shared library + the one build script every mod uses |
-| **scam-wyf-aibackend** | Sends the game's AI calls to your own LLM |
-| **scam-wyf-modhandler** | In-game list of installed plugin files, and the collision report |
-| **scam-wyf-setup** | BepInEx, Doorstop and the corlib patches the game needs |
+![C#](https://img.shields.io/badge/C%23-512BD4?style=for-the-badge&logo=csharp&logoColor=white)
+![.NET](https://img.shields.io/badge/.NET-512BD4?style=for-the-badge&logo=dotnet&logoColor=white)
+![Harmony](https://img.shields.io/badge/Harmony-51796aa?style=for-the-badge)
+![BepInEx](https://img.shields.io/badge/BepInEx-5.4.23.5-14172c?style=for-the-badge)
 
----
-
-## Using it
-
-A mod adds this repo as a submodule and calls its `build.ps1`. The library builds to its own dll,
-`ScamWYF.Modding.Core.dll`, which the mod references rather than embeds.
-
-```powershell
-git submodule add ../scam-wyf-modding-lib vendor/ScamWYF.Modding.Core
-```
-
-**Why a separate dll.** The library owns singletons: one hotkey table, one menu, one panel, one hot
-reload watcher per config. Compiled into every mod's dll, each mod got its own private copy of all of
-them, so two mods meant two F1 bindings and two windows opening on top of each other. A shared dll makes
-those singletons genuinely single.
-
-Git refuses `file://`-style submodule clones by default, so for a local sibling path add
-`-c protocol.file.allow=always`. That is also a reminder that the recorded URL is a relative
-sibling path: when these repos get published, point the submodule at the real remote with
-`git submodule set-url vendor/ScamWYF.Modding.Core <url>`, otherwise a fresh clone on another
-machine will not find the library.
-
-`build.ps1` in a mod repo is then about ten lines:
-
-```powershell
-& "$PSScriptRoot\vendor\ScamWYF.Modding.Core\build.ps1" `
-    -Project ScamWYF.Whatever `
-    -Sources "$PSScriptRoot\src" `
-    -Refs "$managed\Newtonsoft.Json.dll"
-```
-
-The library's own sources, its reference list and the compiler flags live here and nowhere else.
-Start from [`template/Plugin.cs`](template/Plugin.cs): rename the namespace and the guid and you
-have a working mod.
-
-### What gets deployed
-
-| File | Where |
-| --- | --- |
-| `YourMod.dll` | `BepInEx\plugins` |
-| `ScamWYF.Modding.Core.dll` | `BepInEx\core` |
-
-`build.ps1` builds the library first and copies both, so a normal build leaves the game in a working
-state. `BepInEx\core` is the right home for the library because BepInEx loads it first and every mod
-can then resolve it; anything in `plugins` would be loaded as though it were a plugin.
+</div>
 
 ---
 
-## What a mod gets
+## Table of Contents
 
-### `ScamMod` — the base class
+- [Overview](#overview)
+- [Getting Started](#getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Installation](#installation)
+  - [Developer Setup](#developer-setup)
+  - [Usage](#usage)
+  - [Testing](#testing)
+- [Compatibility](#compatibility)
+- [What the Library Provides](#what-the-library-provides)
+- [Project Structure](#project-structure)
+- [Continuous Builds](#continuous-builds)
+- [Security](#security)
+- [Related Projects](#related-projects)
+
+---
+
+## Overview
+
+**ScamWYF.Modding.Core** is an unofficial, community-built C# modding library for **Scam With Your
+Friends**. It provides the things every BepInEx mod for this game ends up writing anyway: a base class,
+a Harmony coordinator that reports collisions, one keyboard poller, range-checked settings, config hot
+reload, and one in-game menu that all mods share.
+
+**Key Features:**
+
+- **One shared menu.** A single window on a single hotkey, with a tab per mod, drawn with UI Toolkit so
+  it inherits the base game's own theme, fonts and scaling rather than imitating them
+- **An in-game config editor.** A form generated from your `.cfg` file itself — bounded numbers become
+  sliders, enums become dropdowns, and the descriptions you already wrote become the help text
+- **Config hot reload.** A hand-edited `.cfg` takes effect while the game is running, including values
+  that decide whether your patch is installed at all
+- **Collisions made visible.** Two mods patching the same method, or binding the same key, is reported
+  with both owners rather than being a mystery
+- **No redistributed game DLLs, decompiled game source, telemetry, or credential collection**
+
+> [!IMPORTANT]
+> The library builds to its own dll and mods **reference** it rather than embedding it. This is
+> deliberate. The library owns singletons — the hotkey table, the menu, the panel — so when it was
+> compiled into each mod, every mod had a private copy, and two mods meant two F1 bindings and two
+> windows opening on top of each other.
+
+> [!NOTE]
+> BepInEx reads the config while the game runs, so the library **polls** for changes rather than using
+> `FileSystemWatcher`. Managed stripping left only `Path` and `Created` on that type in this game
+> build; polling notices a change within about half a second either way.
+
+This project is not affiliated with or endorsed by the developers or publisher of Scam With Your Friends.
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- A legally installed copy of **Scam With Your Friends**, with the build listed under
+  [Compatibility](#compatibility)
+- [BepInEx 5.4.23.5](https://github.com/BepInEx/BepInEx) installed, along with the corlib override —
+  [Setup](../Setup) installs both, because this game ships a stripped `mscorlib` that BepInEx
+  cannot start without
+- The .NET SDK, for the behaviour tests only. Building does not need it
+
+### Installation
+
+1. Install BepInEx and the corlib override with [Setup](../Setup).
+2. Add this repo as a submodule, so the library and the mods are pinned to the same commit:
+
+   ```powershell
+   git submodule add https://github.com/swyf-modding/mod-lib.git vendor/ScamWYF.Modding.Core
+   ```
+
+3. Build. `build.ps1` builds the library first, then your mod against the dll it just produced:
+
+   ```powershell
+   & ".\vendor\ScamWYF.Modding.Core\build.ps1" -Project YourMod -Sources ".\src"
+   ```
+
+4. Copy `YourMod.dll` into `BepInEx\plugins`.
+
+The library is **not** installed into `plugins`. `BepInEx\core` is where it belongs, and `build.ps1`
+puts it there — BepInEx loads `core` first so every mod can resolve it, and anything in `plugins` would
+be loaded as though it were a plugin.
+
+### Developer Setup
+
+```powershell
+git clone --recurse-submodules https://github.com/swyf-modding/mod-lib.git
+cd mod-lib
+.\build.ps1 -LibraryOnly          # does it compile
+.\build.ps1 -LibraryOnly -Test    # does it compile, and do the tests pass
+```
+
+The library's own `build.ps1` needs the game's assemblies to compile against. It finds the install
+itself; pass `-GameDir`, or set `SWYG_GAME_DIR`, if it cannot.
+
+Start a mod from [`template/Plugin.cs`](template/Plugin.cs): rename the namespace and the guid, and you
+have a working mod that already has a menu tab, settings and hot reload.
+
+### Usage
 
 ```csharp
+using BepInEx;
+using ScamWYF.Modding.Core;
+
 [BepInPlugin(PluginGuid, "My Mod", "1.0.0")]
 public sealed class Plugin : ScamMod
 {
-    public const string PluginGuid = "com.example.mymod";
+    private const string PluginGuid = "com.example.mymod";
+    private const string BuiltAgainst = "6000.3.10f1";
 
-    protected override void OnModLoad() { /* do the work */ }
-    protected override void OnModUnload() { /* undo anything OnModLoad started */ }
+    protected override void OnModLoad()
+    {
+        GameBuild.CheckUnityVersion(ModLog, ModId, BuiltAgainst);
+
+        // Range-checked, and the description becomes help text on the generated settings form.
+        var greetingLength = Settings.Bind("General", "GreetingLength", 24, 1, 200,
+            "How long the greeting is.");
+
+        // Pick up an edit to the .cfg while the game is running.
+        WatchConfig();
+
+        PatchCoordinator.TryPatch(this, typeof(SomeType), "SomeMethod", new[] { typeof(int) },
+            "what this does", new HarmonyMethod(AccessTools.Method(typeof(Plugin), nameof(Prefix))));
+    }
+
+    protected override void OnConfigReloaded()
+    {
+        // The file was re-read, so re-derive anything clamped rather than trusting the old values.
+        ModLog.LogInfo("Greeting length is now " + Settings.Int(greetingLength, 1, 200));
+    }
 }
 ```
 
-* Identity comes from `[BepInPlugin]`, read by reflection. The name the mod list shows and the name
-  the session uses cannot drift apart, and there is nothing to keep in sync by hand.
-* `Awake`, `OnDestroy` and `Update` are sealed. Anything thrown from `OnModLoad` is logged with
-  the mod's name and turns that mod inert instead of taking the session down.
-* Two plugins with the same guid: the second is rejected, says so, and switches itself off.
-* On unload, the mod's patches, hotkeys, windows and menu tabs are removed for it.
-* A mod gets a tab in the universal menu whether it asks for one or not, so a mod nothing can reach
-  is not a mod nobody can configure.
-
-### The menu — one window, one hotkey, every mod
-
-Press **F1**. One window with a tab strip: each mod that shares this library has a tab, and the
-library adds **Mods** (what is loaded, what is colliding) and **About** (this session, where the
-files are). The mod handler takes over a **Plugins** tab for the list of plugin files on disk.
+Contributing a tab to the shared menu, if you want one beyond the automatic default:
 
 ```csharp
 ModMenu.AddPage(this, "Status", page =>
 {
-    // The page host is already a scroll view. Do not add another: a nested one takes the wheel first,
-    // which reads as a menu that has stopped responding.
+    // The page host is already a scroll view. Do not add another: a nested one takes the wheel
+    // first, which reads as a menu that has stopped responding.
     Widgets.FieldRow(page, "Endpoint", Config.BaseUrl.Value);
 
     var fold = Widgets.Section(page, "All settings", false);
-    var body = Widgets.SectionBody(fold);
-    ConfigEditor.Build(body ?? page);   // every setting, from the config file itself, one group per section
+    ConfigEditor.Build(Widgets.SectionBody(fold) ?? page);
 });
 ```
 
-A mod contributes a page and nothing else. The menu owns the window, the tab strip, the hotkey and
-the layout, so pages cannot fight over any of it — the same argument this library makes about
-patches and hotkeys, applied to interfaces. The menu hotkey is in
-`BepInEx\config\scamwyf-modding.cfg`, and is editable in game on the About tab.
+The important part is what is *not* there: no `Awake`, no `Update`, no `OnGUI`, no window. `ScamMod`
+seals the Unity callbacks and handles them once for every mod, so two mods cannot fight over them.
 
-The window itself is a normal window: drag the title bar to move it, drag the bottom-right corner to
-resize, and both stick between sessions. Size and position are saved per window title in
-`scamwyf-modding.cfg`, and clamped so a window cannot be shrunk into nothing or dragged out of reach —
-the rules live in [`src/ui/WindowGeometry.cs`](src/ui/WindowGeometry.cs) and are covered by
-`tests/window`.
-
-The menu belongs to the library rather than to the mod handler on purpose: a user who only wants
-the AI backend should not have to install a plugin manager to reach its settings.
-
-### The UI — the base game's own, not a lookalike
-
-The game builds its menus with **UI Toolkit** (`UIDocument`, `PanelSettings`, a theme
-stylesheet). So does this. The shared panel clones the game's own `PanelSettings`, so a mod window
-inherits its theme, fonts and scaling rules, and the colours are read out of the game's live theme
-rather than guessed at:
-
-```csharp
-var colour = UiTheme.Accent;      // sampled from the game's theme
-Widgets.Note(page, "Something to note.");   // styled to match the rest of the game
-```
-
-Two things this gets that an IMGUI overlay could not:
-
-* **Text input works properly.** A text field behaves like a text field — focus, selection, the
-  on-screen keyboard — which is what makes an in-game config editor usable.
-* **Focus.** Clicking a window brings it to the front.
-
-A mod wanting a floating overlay rather than a tab can still have a window:
-
-```csharp
-_window = UiWindows.GetOrCreate(this, "Overlay", 420f, 300f);
-Hotkeys.Register(this, Key.F7, "Toggle", _window.Toggle);
-```
-
-If the shared panel cannot be created — a stripped build with no theme and no font to be found —
-that is logged once and named in the menu, and every mod still loads. A mod with no interface is
-degraded; a mod that takes the session down is not acceptable.
-
-### Config — hot reload and an in-game editor
-
-```csharp
-var settings = Settings;   // range-checked, and builds the editor for the same file
-var timeout = settings.Bind("2 - Endpoint", "TimeoutSeconds", 90, 1, 3600,
-    "Per-attempt timeout in seconds.");
-var seconds = settings.Int(timeout, 1, 3600);   // clamped, warned about, never throws
-
-WatchConfig();   // edits to the .cfg now take effect without a restart
-```
-
-* **`Settings.Bind` with a min and max** is what makes the editor useful: the setting becomes a
-  slider, and the description becomes its help text. Nothing extra to declare.
-* **Editing in game writes straight to the file**, so the text file and what the mod is using
-  cannot drift apart. Editing the file works too, and is picked up within about half a second.
-* **Ranges are enforced on every read.** `Timeout = ages` is a warning in the log, not a mod that
-  throws during load.
-
-Hot reload is done by polling the file's timestamp rather than with `FileSystemWatcher`, on
-purpose: managed stripping has left `System.IO.FileSystemWatcher` in this build with only `Path`
-and `Created` — no `Changed`, no way to set its filter — so a watcher here would silently never
-fire. Polling costs one stat call per tick and always works. A save is only acted on once the
-file's timestamp *and* length have been stable for a moment, so a half-finished write is never read.
-
-### `PatchCoordinator` — Harmony, with collisions made visible
-
-```csharp
-PatchCoordinator.TryPatch(this, typeof(KolkataApi), "CompleteOpenRouterAsync",
-    new[] { typeof(JObject), typeof(CancellationToken), typeof(bool) },
-    "route AI calls",
-    new HarmonyMethod(AccessTools.Method(typeof(Plugin), nameof(Prefix))));
-```
-
-* One Harmony instance per mod, keyed by the mod's guid, so unloading a mod removes exactly its
-  own patches.
-* If another mod has already patched the same method, that is logged, with both owners named, and
-  reported in the menu. Patches do compose, but a prefix quietly not firing is a miserable thing
-  to debug, so it says so out loud.
-* When the target method has moved or changed shape — the normal consequence of a game update —
-  the log says what was expected, what the running build is, and which same-named methods do
-  exist, instead of throwing an `AccessTools` stack trace.
-
-### `Hotkeys` — one keyboard poller
-
-```csharp
-Hotkeys.Register(this, Key.F7, "Toggle my overlay", _window.Toggle, Key.LeftCtrl);
-```
-
-Mods do not poll `Keyboard.current` themselves. Two mods on the same key is reported in the log
-and in the menu; both still fire, because silently ignoring one just moves the confusion. Hotkeys
-are suppressed while a text field in the menu has focus, so typing "f1" into the menu-key setting
-does not toggle the menu mid-keystroke.
-
-### `GameBuild` — what build is this
-
-`GameBuild.Describe()` names the build for a startup log. `CheckUnityVersion(log, modId,
-"6000.3.10f1")` warns when a mod is running on a different Unity than it was written against. It
-also resolves game types, fields and methods by name, reporting a miss as the game update it
-almost always is.
-
-### `ModRegistry` — who else is here
-
-`ModRegistry.Mods` lists the mods sharing the library, and `ModRegistry.CollisionReport()` returns
-duplicate ids, patch collisions and hotkey collisions as text, or null when there are none. The
-menu's Mods tab renders both.
-
----
-
-## Building
+### Testing
 
 ```powershell
-.\build.ps1 -LibraryOnly                        # just check the library compiles
-.\build.ps1 -LibraryOnly -Test                  # ...and run the tests
-.\build.ps1 -Project MyMod -Sources .\src        # a mod, via a mod repo's wrapper
+.\build.ps1 -LibraryOnly -Test
 ```
 
 `-Test` does two things:
 
-1. **Compiles [`tests/api`](tests/api)** together with the library against the game's own
-   assemblies. That file is the library's public surface written out once, so every UI Toolkit and
-   BepInEx call a mod is expected to make is checked against what actually shipped. Because the
-   build uses `-nostdlib+` against the game's own `mscorlib.dll` (see below), anything managed
-   stripping removed is a build error here rather than a `MissingMethodException` in somebody's
-   session.
+1. **Compiles [`tests/api`](tests/api)** together with the library against the game's own assemblies.
+   That file is the public surface written out once, so every UI Toolkit and BepInEx call a mod is
+   expected to make is checked against what actually shipped.
 2. **Runs the behaviour tests**, each compiling the real source file it covers rather than a copy:
 
    | Suite | Covers |
@@ -238,65 +187,150 @@ menu's Mods tab renders both.
    | [`tests/watcher`](tests/watcher) | config polling, waiting for a write to settle, surviving a file that does not parse |
    | [`tests/window`](tests/window) | window size and position clamping: minimums, screen limits, idempotence |
 
-   These need the .NET SDK rather than just Roslyn, and are skipped with a warning if `dotnet` is not
-   on `PATH`.
+The behaviour tests need the .NET SDK and are skipped with a warning if `dotnet` is not on `PATH`. They
+use nothing but the BCL, so they run on Linux — which is what the CI workflow does on every push.
 
-No .NET SDK required to build. It runs Roslyn directly: `-CscDll <path to csc.dll>` to point at
-one, or it finds `csc.exe` from VS Build Tools, or the copy inside a .NET SDK.
+No game DLL belongs in this repository or in a GitHub release.
 
-`-GameDir` is auto-detected (Steam paths, plus `SWYG_GAME_DIR`); pass it explicitly if the game is
-somewhere unusual.
+---
 
-### On a build agent
+## Compatibility
 
-The build compiles against the game's own assemblies, so it needs
-`Scam With Your Friends_Data\Managed` and `BepInEx\core` to exist somewhere. The game is not
-redistributable, so a runner has to be given them another way — a cached artifact, a mounted copy, or
-a self-hosted runner with the game installed. Set `SWYG_GAME_DIR` to the folder containing both and
-everything else is found. `.\build.ps1 -NoCopy -Test` is the command to run: `-NoCopy` because an agent
-should not be writing to a game install it does not own, `-Test` because a build that only compiles is
-not much of a check.
+| Component | Verified Version |
+|---|---|
+| Scam With Your Friends | `v82-playtest` |
+| Unity | `6000.3.10f1` |
+| BepInEx | `5.4.23.5`, Mono preloader |
+| Doorstop | `4.5.0` |
+| C# language level | `7.3` |
+| Backend | Mono, with managed stripping **on** |
+| Platform | Windows x64 |
 
-Because the library is a submodule, a build of a mod needs
-`git clone --recurse-submodules`, or `git submodule update --init --recursive` in an existing clone.
+Other game builds are untested. `GameBuild.CheckUnityVersion` reports a mismatch as a warning naming
+both versions rather than assuming support.
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) is in two tiers, because of that dependency:
+The build compiles with `-nostdlib+` against **the game's own `mscorlib.dll`**, not a reference
+assembly. The compiler therefore sees exactly the API surface Unity shipped, so a call that managed
+stripping removed is a **build error** rather than a `MissingMethodException` in somebody's session.
+
+---
+
+## What the Library Provides
+
+### `ScamMod` — the base class
+
+Identity read from `[BepInPlugin]`, duplicate guids rejected, load failures logged and made inert
+instead of taking the session down, and everything registered with the shared services undone on unload.
+
+### `ModMenu` — one window, one hotkey, every mod
+
+Press **F1**. One window with a tab strip: a tab per mod, plus **Mods** (what is loaded, what is
+colliding) and **About** (this session, where the files are). A keyed tab mechanism lets the mod handler
+take over **Plugins**. Rebuilding the strip keeps the current tab, so editing a setting does not throw
+the user back to page one.
+
+### `UiPanel` and `UiTheme` — the base game's own UI, not a lookalike
+
+The shared panel clones the game's own `PanelSettings` and reads its live theme, so a mod window
+inherits the game's theme, fonts and scaling. Windows are movable and resizable, and remember where
+they were left in `scamwyf-modding.cfg`. The clamping rules that keep a window on screen and above a
+minimum size live in [`src/ui/WindowGeometry.cs`](src/ui/WindowGeometry.cs) and are covered by tests.
+
+### `ConfigEditor` — a settings form from your `.cfg`
+
+Reads the `ConfigFile` you already have and draws it: booleans as toggles, bounded numbers as sliders,
+enums as dropdowns, secrets as masked fields. Writes go straight to disk. Sections become collapsible
+groups, because a config with fifty settings is unreadable as one flat list.
+
+### `ConfigWatcher` — hot reload
+
+Polls for mtime and length changes, debounces, and re-reads. Survives a file that does not parse by
+reporting it rather than throwing out of the tick.
+
+### `PatchCoordinator` — Harmony, with collisions made visible
+
+One Harmony instance per mod. Target resolution that reports a game update rather than throwing, and
+same-target patches reported with both owners.
+
+### `Hotkeys` — one keyboard poller
+
+One poller for all mods, duplicate bindings reported instead of silently misfiring, rebindable in game,
+and suppressed while a text field has focus.
+
+### `ModSettings` — range-checked config reads
+
+These `.cfg` files get hand-edited, so a value out of range is clamped and reported rather than passed
+on to a request path that will not survive it.
+
+---
+
+## Project Structure
+
+```text
+src/
+|-- ScamMod.cs             Base class: identity, lifecycle, sealed Unity callbacks
+|-- LibraryRuntime.cs      Startup, menu hotkey binding, single-copy warning
+|-- ModRegistry.cs         Which mods are loaded
+|-- ModSettings.cs         Range-checked config reads
+|-- Hotkeys.cs             One keyboard poller for all mods
+|-- PatchCoordinator.cs    Harmony, with collisions reported
+|-- GameBuild.cs           What game and Unity build is this
+|-- config/
+|   |-- ConfigWatcher.cs   Config hot reload
+|   `-- ConfigEditor.cs    Settings form generated from a .cfg
+`-- ui/
+    |-- UiPanel.cs         The shared UIDocument
+    |-- UiTheme.cs         Colours read from the game's live theme
+    |-- Widgets.cs         Themed controls
+    |-- ModMenu.cs         The one menu
+    |-- UiWindow.cs        Window frame, geometry persistence
+    |-- UiWindows.cs       Window bookkeeping per owner
+    |-- ResizeGrip.cs      Drag to resize
+    |-- WindowGeometry.cs  The clamping arithmetic, deliberately dependency-free
+    `-- WindowPlacement.cs Saved size and position
+template/Plugin.cs         A working mod to copy
+tests/                     API surface compile check, and behaviour tests
+```
+
+---
+
+## Continuous Builds
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push and pull request, in two
+tiers, because the build compiles against the game's assemblies and those are not ours to redistribute:
 
 | Job | Runner | What |
 |---|---|---|
 | `tests` | hosted, any OS | the behaviour tests — pure BCL, no game |
-| `build` | self-hosted, or by hand | the real compile, the API surface check, an artefact |
+| `build` | self-hosted with the game, or by hand | the real compile, the API surface check, an artefact |
 
-`build` skips itself with a `::notice::` when there is no game, rather than failing, so a green run
-never quietly means "nothing was compiled". A fork's pull request skips it deliberately: there is no
-game there, and asking would just queue forever against a runner that never appears.
+`build` skips itself with a notice when there is no game rather than failing, so a green run never
+quietly means "nothing was compiled". To use a labelled runner rather than any self-hosted machine, set
+a repository variable:
 
-To use a labelled runner rather than any `self-hosted` machine, set a repository variable:
-
-    SWYM_RUNNER = self-hosted, windows, scamwyf
-
-[`Launcher`](../Launcher) has no such split — it compiles against the .NET Framework reference
-assemblies and stages its own Cecil, so a hosted Windows runner can build and smoke-test it outright.
-
-### The one build rule that matters
-
-Compilation uses `-nostdlib+` against **the game's own `mscorlib.dll`**, not a reference assembly.
-The compiler sees exactly the API surface Unity shipped, so code using a method that managed
-stripping removed fails to build rather than failing at runtime. This is why mods here do not need
-an unstripped corlib of their own.
-
-Verified compiling against the real game build:
-
-```bash
-dotnet /usr/lib/dotnet/sdk/*/Roslyn/bincore/csc.dll -target:library -nostdlib+ -langversion:7.3 \
-  -r:"<game>/Scam With Your Friends_Data/Managed/mscorlib.dll" ... src/*.cs template/*.cs
+```text
+SWYM_RUNNER = self-hosted, windows, scamwyf
 ```
 
-C# 7.3, no third-party packages, no `.csproj`. A raw `csc` invocation against a stripped BCL is the
-constraint that shapes this: it has to work without MSBuild or NuGet in the loop.
+---
 
-### Why the UI is inline styles rather than a stylesheet
+## Security
 
-A `.uss` would have to ship as an asset loaded at runtime by path, which means working out where the
-game was installed at runtime and handling it being wrong. Setting `style.backgroundColor` and friends
-in code costs a few more bytes and keeps the whole styling story in one readable place.
+Please do not publish suspected vulnerabilities, credentials, authentication tickets, private game data,
+or sensitive logs in a public issue — including the contents of `BepInEx\LogOutput.log`, which contains
+the API keys mods configure.
+
+The project deliberately does not redistribute proprietary assemblies: the game's own assemblies stay in
+your install, and `vendor\` carries only what is ours to give away. Because this is game-mod software,
+install only releases you trust.
+
+---
+
+## Related Projects
+
+| Project | What it is |
+|---|---|
+| [Setup](../Setup) | Installs BepInEx, the corlib override, and the vtable patches this game needs |
+| [Launcher](../Launcher) | Installs, launches, and manages mods from outside the game |
+| [Mod-Handler](../Mod-Handler) | The in-game **Plugins** tab — turn mods off without leaving a session |
+| [AI-Backend](../AI-Backend) | Routes the game's AI calls to your own LLM |
