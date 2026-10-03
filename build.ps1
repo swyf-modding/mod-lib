@@ -400,6 +400,12 @@ Write-Host "Version: $($BuildVersion.Informational)"
 if ($LASTEXITCODE -ne 0) { throw "$assemblyName failed to compile (exit $LASTEXITCODE)" }
 Write-Host "Built $outDll" -ForegroundColor Green
 
+# Every build, not just a release. This is the one check that would have caught the regression where both
+# published mods loaded zero plugins: the version in [BepInPlugin] had build metadata in it, BepInEx
+# could not parse it, and nothing anywhere said so except a line in a log file nobody had open.
+& (Join-Path $PSScriptRoot 'tools\test-bepinex-version.ps1') -Assembly $outDll -Cecil (Join-Path $core 'Mono.Cecil.dll')
+if ($LASTEXITCODE -ne 0) { throw "$assemblyName has a [BepInPlugin] version BepInEx will refuse, so it would not load" }
+
 if ($Test) { Invoke-Tests }
 
 # The library on its own is not a plugin. Anything else goes where BepInEx will find it.
