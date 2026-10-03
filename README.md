@@ -30,6 +30,7 @@
 - [Compatibility](#compatibility)
 - [What the Library Provides](#what-the-library-provides)
 - [Project Structure](#project-structure)
+- [Version Stamping](#version-stamping)
 - [Continuous Builds](#continuous-builds)
 - [Security](#security)
 - [License](#license)
@@ -78,13 +79,13 @@ This project is not affiliated with or endorsed by the developers or publisher o
 - A legally installed copy of **Scam With Your Friends**, with the build listed under
   [Compatibility](#compatibility)
 - [BepInEx 5.4.23.5](https://github.com/BepInEx/BepInEx) installed, along with the corlib override —
-  [Setup](../Setup) installs both, because this game ships a stripped `mscorlib` that BepInEx
+  [Setup](https://github.com/swyf-modding/Setup) installs both, because this game ships a stripped `mscorlib` that BepInEx
   cannot start without
 - The .NET SDK, for the behaviour tests only. Building does not need it
 
 ### Installation
 
-1. Install BepInEx and the corlib override with [Setup](../Setup).
+1. Install BepInEx and the corlib override with [Setup](https://github.com/swyf-modding/Setup).
 2. Add this repo as a submodule, so the library and the mods are pinned to the same commit:
 
    ```powershell
@@ -124,7 +125,9 @@ have a working mod that already has a menu tab, settings and hot reload.
 using BepInEx;
 using ScamWYF.Modding.Core;
 
-[BepInPlugin(PluginGuid, "My Mod", "1.0.0")]
+// PluginBuildInfo.Version is generated into obj\ by build.ps1 from your repo's git tag. See
+// "Version Stamping" below - do not replace it with a literal.
+[BepInPlugin(PluginGuid, "My Mod", PluginBuildInfo.Version)]
 public sealed class Plugin : ScamMod
 {
     private const string PluginGuid = "com.example.mymod";
@@ -290,8 +293,40 @@ src/
     |-- WindowGeometry.cs  The clamping arithmetic, deliberately dependency-free
     `-- WindowPlacement.cs Saved size and position
 template/Plugin.cs         A working mod to copy
+Version.ps1                Version stamping, shared with every mod built through this library
 tests/                     API surface compile check, and behaviour tests
 ```
+
+---
+
+## Version Stamping
+
+`Version.ps1` is dot-sourced by `build.ps1` and by each mod's own `build.ps1`. It reads the nearest git
+tag and stamps the result into the assembly, so a released dll reports the tag it was cut from without
+anyone editing a number in a source file.
+
+| | |
+|---|---|
+| `AssemblyVersion`, `AssemblyFileVersion` | `1.2.3` — numeric, because the CLR rejects a prerelease here |
+| `AssemblyInformationalVersion` | `1.2.3+g0a1b2c3` — what Explorer and Programs and Features show |
+| `PluginBuildInfo.Version` | the same string, as a `const` a mod can pass to `[BepInPlugin]` |
+
+A commit past the tag adds `+3.g0a1b2c3`, a prerelease tag keeps its name (`v1.2.3-rc1` →
+`1.2.3-rc1+g0a1b2c3`), an uncommitted tree is marked `.dirty` and warned about, and an untagged tree
+reports `0.0.0+untagged.g0a1b2c3` — which says so rather than claiming to be 1.0.0. The generated
+`obj\BuildInfo.g.cs` is not committed.
+
+**A mod resolves its own version and passes it down.** This file lives in a submodule, so resolving it
+here would report *mod-lib's* tags rather than the mod's — the two are released independently and are
+not always at the same commit. A mod therefore calls `Resolve-BuildVersion -Path $PSScriptRoot` and
+hands the result to `build.ps1 -BuildVersion`.
+
+Two fallbacks, so a build works outside a checkout: no `git` or no `.git\` warns and stamps `0.0.0`,
+and `-Version` sets it outright for a source archive.
+
+The reason this exists rather than a version literal in each mod: the launcher's Mods tab and this
+library's Plugins tab both read the version back out of `[BepInPlugin]` with Cecil and show it to the
+player. A hardcoded `"1.0.0"` is right on the first release and silently wrong on every one after it.
 
 ---
 
@@ -340,7 +375,7 @@ right to the game's own assemblies, which are not redistributed.
 
 | Project | What it is |
 |---|---|
-| [Setup](../Setup) | Installs BepInEx, the corlib override, and the vtable patches this game needs |
-| [Launcher](../Launcher) | Installs, launches, and manages mods from outside the game |
-| [Mod-Handler](../Mod-Handler) | The in-game **Plugins** tab — turn mods off without leaving a session |
-| [AI-Backend](../AI-Backend) | Routes the game's AI calls to your own LLM |
+| [Setup](https://github.com/swyf-modding/Setup) | Installs BepInEx, the corlib override, and the vtable patches this game needs |
+| [Launcher](https://github.com/swyf-modding/Launcher) | Installs, launches, and manages mods from outside the game |
+| [Mod-Handler](https://github.com/swyf-modding/Mod-Handler) | The in-game **Plugins** tab — turn mods off without leaving a session |
+| [AI-Backend](https://github.com/swyf-modding/AI-Backend) | Routes the game's AI calls to your own LLM |

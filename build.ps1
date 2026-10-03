@@ -64,7 +64,14 @@ param(
 
     # Run the ConfigWatcher tests against the library sources. Off by default: they need the .NET SDK
     # rather than just Roslyn, and a mod repo has no reason to pay for them on every build.
-    [switch]$Test
+    [switch]$Test,
+
+    # Version stamped into the assembly, as an object from Resolve-BuildVersion in Version.ps1.
+    #
+    # Passed in rather than read here, because this script lives in a submodule: resolving the version
+    # against $PSScriptRoot would report mod-lib's tags, not the mod's. A mod resolves its own and hands
+    # it down. Left unset - as when the library is built on its own - it resolves against this repo.
+    [object]$BuildVersion
 )
 
 $ErrorActionPreference = 'Stop'
@@ -325,7 +332,7 @@ else {
     # Build the library first, so a mod can never be compiled against a stale version of it. This is
     # what makes "reference the library" safe: the reference is always to what was just built.
     Write-Host "Building the shared library first..." -ForegroundColor DarkGray
-    & $PSScriptRoot\build.ps1 -LibraryOnly -OutDir $libOut -GameDir $GameDir -CscDll $CscDll -NoCopy
+    & $PSScriptRoot\build.ps1 -LibraryOnly -OutDir $libOut -GameDir $GameDir -CscDll $CscDll -NoCopy -BuildVersion $BuildVersion
     if ($LASTEXITCODE -ne 0) { throw "the shared library failed to build (exit $LASTEXITCODE)" }
 
     if (-not (Test-Path $libDll)) { throw "The shared library did not produce $libDll" }
@@ -336,6 +343,22 @@ else {
 
 $assemblyName = if ($LibraryOnly) { 'ScamWYF.Modding.Core' } else { $Project }
 $outDll = Join-Path $OutDir "$assemblyName.dll"
+
+# ---------------------------------------------------------------- version
+
+. (Join-Path $PSScriptRoot 'Version.ps1')
+
+if (-not $BuildVersion) {
+    $BuildVersion = Resolve-BuildVersion -Path $PSScriptRoot
+}
+if ($BuildVersion.Dirty) {
+    Write-Host "  note: uncommitted changes in the working tree, so this is not a clean release build." -ForegroundColor Yellow
+}
+
+# Generated into obj\, which is gitignored: a committed copy is the version drift this replaces.
+$buildInfoSource = Join-Path $PSScriptRoot 'obj\BuildInfo.g.cs'
+Write-BuildInfoSource -OutFile $buildInfoSource -BuildVersion $BuildVersion
+$sourceFiles += $buildInfoSource
 
 $cscArgs = @(
     '-target:library'
@@ -355,6 +378,7 @@ $csc = Resolve-Csc $CscDll
 
 Write-Host "Game: $GameDir"
 Write-Host "Output: $outDll"
+Write-Host "Version: $($BuildVersion.Informational)"
 
 & $csc $cscArgs
 if ($LASTEXITCODE -ne 0) { throw "$assemblyName failed to compile (exit $LASTEXITCODE)" }
