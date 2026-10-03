@@ -352,7 +352,19 @@ $outDll = Join-Path $OutDir "$assemblyName.dll"
 
 . (Join-Path $PSScriptRoot 'Version.ps1')
 
-if (-not $BuildVersion) {
+# The library reports its own provenance, never the mod's. A mod passes -BuildVersion in, and for the
+# mod's own dll that is correct - but the dll that comes back is ScamWYF.Modding.Core.dll, whose source is
+# this submodule, so stamping it with a commit from the mod's repository is a claim about code that commit
+# does not contain.
+#
+# It matters concretely rather than philosophically. Both mods ship a library dll to the same folder, so
+# installing one over the other leaves whichever went last reporting itself as that mod's build - while
+# the library source is byte for byte identical. The same file would report 1.0.0+g<modhandler> or
+# 1.0.0+g<aibackend> depending on install order, and neither would be true.
+if ($LibraryOnly) {
+    $BuildVersion = Resolve-BuildVersion -Path $PSScriptRoot
+}
+elseif (-not $BuildVersion) {
     $BuildVersion = Resolve-BuildVersion -Path $PSScriptRoot
 }
 if ($BuildVersion.Dirty) {
