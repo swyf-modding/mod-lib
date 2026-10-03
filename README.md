@@ -332,21 +332,30 @@ player. A hardcoded `"1.0.0"` is right on the first release and silently wrong o
 
 ## Continuous Builds
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push and pull request, in two
-tiers, because the build compiles against the game's assemblies and those are not ours to redistribute:
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs the behaviour tests on every push and pull
+request, on a hosted runner. That is all it runs, and the limit is deliberate.
 
-| Job | Runner | What |
+The build compiles with `-nostdlib+` against the game's own `mscorlib`, and those are not ours to
+redistribute, so a hosted runner cannot do it. It could be given them as an artefact or a secret, but a
+self-hosted runner is simpler than either and there is no reason to pretend otherwise. So:
+
+| | Where | What |
 |---|---|---|
-| `tests` | hosted, any OS | the behaviour tests — pure BCL, no game |
-| `build` | self-hosted with the game, or by hand | the real compile, the API surface check, an artefact |
+| behaviour tests | CI, hosted | pure BCL, no game — logic a compile cannot catch |
+| the build | your machine | the real compile, and the API surface check |
 
-`build` skips itself with a notice when there is no game rather than failing, so a green run never
-quietly means "nothing was compiled". To use a labelled runner rather than any self-hosted machine, set
-a repository variable:
+The API surface check is the tier that matters most here, because it is the one a hosted runner cannot
+do and the one that catches a stripped API the build calls. It runs before every release:
 
-```text
-SWYM_RUNNER = self-hosted, windows, scamwyf
+```powershell
+.\build.ps1 -LibraryOnly -Test -NoCopy
 ```
+
+There was a self-hosted CI job for this once. It is gone because a self-hosted job with no runner
+registered does not fail — it queues, and sits there until GitHub cancels it 24 hours later, so every
+push to `main` left a stuck red job and the "Run workflow" button was a trap that did the same on demand.
+
+Releases are published by hand; see [RELEASING.md](RELEASING.md).
 
 ---
 
