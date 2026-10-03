@@ -45,14 +45,14 @@ internal static class WatcherTests
             watcher.Reloaded += delegate { reloads++; };
 
             // 1. Nothing has changed, so nothing should happen no matter how long we pump.
-            Pump(watcher, 40);
+            Pump(watcher, 400);
             Check("idle file does not trigger a reload", reloads == 0, "reloads=" + reloads);
             Check("watcher knows the file it is watching", watcher.LastChangeUtc == null,
                 "LastChangeUtc=" + watcher.LastChangeUtc);
 
             // 2. An edit on disk is picked up, and the value really is the new one.
             File.WriteAllText(path, "Timeout = 45\n");
-            Pump(watcher, 40);
+            Pump(watcher, 400);
             Check("an edit on disk is noticed", reloads == 1, "reloads=" + reloads);
             Check("the reloaded value is the new one", file.LastSeenValue == "45",
                 "LastSeenValue=" + file.LastSeenValue);
@@ -60,7 +60,7 @@ internal static class WatcherTests
 
             // 3. A watcher must not fire on its own ReloadNow writing the file back.
             watcher.ReloadNow("test");
-            Pump(watcher, 20);
+            Pump(watcher, 250);
             Check("ReloadNow does not cause a feedback reload", reloads == 2, "reloads=" + reloads);
 
             // 4. A file that will not parse is reported, and does not throw out of Tick.
@@ -69,7 +69,7 @@ internal static class WatcherTests
             var threw = false;
             try
             {
-                Pump(watcher, 40);
+                Pump(watcher, 400);
             }
             catch (Exception ex)
             {
@@ -87,21 +87,21 @@ internal static class WatcherTests
 
             // 5. And it recovers: the next good edit still comes through.
             File.WriteAllText(path, "Timeout = 200\n");
-            Pump(watcher, 40);
+            Pump(watcher, 400);
             Check("a later good edit is picked up", file.LastSeenValue == "200",
                 "LastSeenValue=" + file.LastSeenValue);
             Check("reload count is tracked", watcher.ReloadCount > 0, "count=" + watcher.ReloadCount);
 
             // 6. A deleted file is survivable; it comes back if it is recreated.
             File.Delete(path);
-            Pump(watcher, 20);
+            Pump(watcher, 250);
             File.WriteAllText(path, "Timeout = 300\n");
-            Pump(watcher, 40);
+            Pump(watcher, 400);
             Check("a deleted and recreated file is picked up", file.LastSeenValue == "300",
                 "LastSeenValue=" + file.LastSeenValue);
 
             watcher.Dispose();
-            Pump(watcher, 20);
+            Pump(watcher, 250);
         }
         finally
         {
@@ -114,9 +114,22 @@ internal static class WatcherTests
     }
 
     /// <summary>Run the poll for a while. The watcher throttles on its own clock, so this is just time.</summary>
+    /// <remarks>
+    /// Bounded by a wall-clock deadline rather than a tick count, because Thread.Sleep(1) is not 1ms.
+    /// On Windows it is usually about 15ms - the default timer resolution - so a 40-iteration loop used
+    /// to cover most of a second and the tests passed there, while on Linux it really is 1ms and the
+    /// same loop covered 40ms, which is less than the 100ms the watcher waits for a file to settle.
+    /// Counting iterations therefore made the outcome depend on the platform's timer granularity: these
+    /// tests failed on the ubuntu runner and passed on a Windows developer machine, for the same commit.
+    ///
+    /// Every duration below is comfortably past the watcher's 0.1s settle interval. Waiting longer
+    /// cannot make a test pass that should fail - the assertions are unchanged - it only stops the
+    /// harness from deciding the outcome.
+    /// </remarks>
     private static void Pump(ConfigWatcher watcher, int milliseconds)
     {
-        for (int i = 0; i < milliseconds; i++)
+        var until = System.Diagnostics.Stopwatch.StartNew();
+        while (until.ElapsedMilliseconds < milliseconds)
         {
             watcher.Tick();
             System.Threading.Thread.Sleep(1);
