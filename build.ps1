@@ -219,10 +219,14 @@ function Invoke-Tests {
     Write-Host ""
     Write-Host "Checking the API surface..." -ForegroundColor Cyan
 
+    # -BuildVersion has to be forwarded, or this nested build resolves the version against mod-lib's
+    # own repository and stamps the library with mod-lib's commit. That is not cosmetic: the library
+    # dll it rebuilds is the one a mod ships in its release zip, so running -Test would leave the pair
+    # disagreeing about which commit they came from.
     & $PSScriptRoot\build.ps1 -Project ScamWYF.Modding.ApiCheck `
                               -Sources (Join-Path $PSScriptRoot 'tests\api') `
                               -OutDir (Join-Path $OutDir 'apicheck') `
-                              -GameDir $GameDir -CscDll $CscDll -NoCopy
+                              -GameDir $GameDir -CscDll $CscDll -NoCopy -BuildVersion $BuildVersion
     if ($LASTEXITCODE -ne 0) { throw "the API surface check failed to compile" }
 
     # Second: the behaviour tests. These need the .NET SDK rather than just Roslyn, so they are skipped
