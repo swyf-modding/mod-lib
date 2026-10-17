@@ -159,6 +159,17 @@ namespace ScamWYF.Modding.Core
                 ModMenu.Start();
 
                 WatchSelf();
+
+                // Proves-then-skips workarounds for game-build defects. Each one is a no-op on a
+                // build without the defect, and says what it suppressed when there is one.
+                try
+                {
+                    GameWorkarounds.EnsureHudHintBindingGuard();
+                }
+                catch (Exception ex)
+                {
+                    Log.LogWarning("Game workarounds did not install: " + ex.Message);
+                }
             }
             catch (Exception ex)
             {

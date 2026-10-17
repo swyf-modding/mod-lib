@@ -5,6 +5,7 @@ using BepInEx;
 using BepInEx.Configuration;
 using HarmonyLib;
 using ScamWYF.Modding.Core;
+using ScamWYF.Modding.Core.Content;
 using ScamWYF.Modding.Core.Ui;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -162,6 +163,92 @@ namespace ScamWYF.Modding.Core.Tests
         }
 
         private static void Prefix() { }
+
+        // ---- Game workarounds: prove-then-skip guards for game-build defects ----
+
+        internal static void WorkaroundSurface()
+        {
+            // Installed by the library itself; a mod only reads back what engaged.
+            GameWorkarounds.EnsureHudHintBindingGuard();
+            var suppressed = GameWorkarounds.HudHintBindingSuppressed;
+        }
+
+        // ---- Custom scams and apps: one registry every mod shares ----------------
+
+        internal static void ContentSurface(ScamMod mod)
+        {
+            // Specs are plain data; validation is pure and never touches the game.
+            var objective = new ScamObjectiveSpec
+            {
+                Id = "confirm",
+                Text = "Confirm the date.",
+                Prerequisites = new[] { "summons" },
+                Final = true,
+            };
+
+            var scam = new ConversationScamSpec
+            {
+                Id = "moar-jury-duty",
+                ProductId = "moar-scam-jury",
+                AppId = "scam-moar-jury",
+                Title = "Jury Duty",
+                Reward = 475,
+                Objectives = new[]
+                {
+                    new ScamObjectiveSpec { Id = "summons", Text = "Get them to acknowledge the summons." },
+                    objective,
+                },
+            };
+            var scamProblem = ContentValidation.CheckConversationScam(scam);
+
+            var scamType = new ScamTypeSpec
+            {
+                Id = "moar_tax",
+                DisplayName = "Tax Rebate",
+                AppId = "moar-tax-office",
+                DisplayOrder = 20,
+                RelevantSentinels = new[] { "FICTIONAL_MOAR_TAX_ID" },
+                AppCompletionSource = "moar_tax_submit",
+                CallerPrompt = "Share [[FICTIONAL_MOAR_TAX_ID]] when persuaded.",
+                TestOpeningPlayerLine = "I am calling about your tax rebate.",
+            };
+            var typeProblem = ContentValidation.CheckScamType(scamType);
+
+            // Factories cover the two scam app shapes; anything else is a plain spec.
+            var conversationApp = OsAppSpec.ConversationScamApp("scam-moar-jury", "Jury Duty", "moar-scam-jury");
+            var formApp = OsAppSpec.FormScamApp("moar-tax-office", "Tax Office", "moar-scam-tax",
+                "moar_tax_submit", "Verify",
+                new[] { new OsFormFieldSpec { Id = "tax-id", Label = "Tax ID", ItemId = "FICTIONAL_MOAR_TAX_ID" } });
+            var appProblem = ContentValidation.CheckApp(formApp);
+
+            var product = StoreProductSpec.FreeScam("moar-scam-jury", "scam-moar-jury",
+                "moar-jury-duty", "Jury Duty", "Serve justice.", 3);
+            var productProblem = ContentValidation.CheckProduct(product);
+
+            var sentinel = SentinelSpec.Digits("FICTIONAL_MOAR_TAX_ID", "Tax ID", 250,
+                "moar_tax_submit", new[] { 2, 2 }, "-");
+            var sentinelProblem = ContentValidation.CheckSentinel(sentinel);
+
+            // Registration merges into the game's own catalogs. The first mod's call installs
+            // the patches; every mod after that just adds entries. Duplicate ids fail with
+            // both owners named instead of overwriting.
+            var scamOk = ContentRegistry.RegisterConversationScam(mod, scam);
+            var typeOk = ContentRegistry.RegisterScamType(mod, scamType);
+            var appOk = ContentRegistry.RegisterApp(mod, conversationApp);
+            var rawAppOk = ContentRegistry.RegisterAppJson(mod, "moar-extra", "{\"id\":\"moar-extra\"}");
+            var productOk = ContentRegistry.RegisterProduct(mod, product);
+            var rawProductOk = ContentRegistry.RegisterProductJson(mod, "moar-extra-product", "{\"id\":\"x\"}");
+            var sentinelOk = ContentRegistry.RegisterSentinel(mod, sentinel);
+
+            var mine = ContentRegistry.ForOwner(mod.ModId);
+            var allScams = ContentRegistry.RegisteredConversationScams;
+            var allTypes = ContentRegistry.RegisteredScamTypes;
+            var allApps = ContentRegistry.RegisteredApps;
+            var allProducts = ContentRegistry.RegisteredProducts;
+            var allSentinels = ContentRegistry.RegisteredSentinels;
+            var conflicts = ContentRegistry.ConflictReport();
+            ContentRegistry.UnregisterOwner(mod.ModId);
+        }
 
         // ---- Widgets a page can be built from --------------------------------------
 

@@ -46,7 +46,7 @@ if (-not $Cecil) {
 
 if (-not $Cecil) {
     $game = $env:SWYG_GAME_DIR
-    if (-not $game) { $game = "${env:ProgramFiles(x86)}\Steam\steamapps\common\Scam With Your Friends Playtest" }
+    if (-not $game) { $game = "D:\SteamLibrary\steamapps\common\Scam With Your Friends" }
     $candidate = Join-Path $game 'BepInEx\core\Mono.Cecil.dll'
     if (Test-Path $candidate) { $Cecil = $candidate }
 }

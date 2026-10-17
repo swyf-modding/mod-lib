@@ -77,9 +77,50 @@ param(
 $ErrorActionPreference = 'Stop'
 
 <#
-    Finds the game install: an explicit path, then SWYG_GAME_DIR, then the usual Steam locations.
+    Every Steam library's 'common' folder, default install first, then whatever libraryfolders.vdf
+    names. The game is installed to a library, not necessarily the one Steam itself lives in - it is
+    on D: here while Steam is on C: - so reading the VDF is what makes this work on a machine whose
+    libraries are somewhere unexpected, without hardcoding one drive letter.
+#>
+function Get-SteamGameRoots {
+    $roots = @()
+    foreach ($steam in @("${env:ProgramFiles(x86)}\Steam", "${env:ProgramFiles}\Steam",
+                         "${env:LOCALAPPDATA}\Steam")) {
+        if (-not $steam) { continue }
+        $roots += (Join-Path $steam 'steamapps\common')
+
+        $vdf = Join-Path $steam 'steamapps\libraryfolders.vdf'
+        if (-not (Test-Path $vdf)) { continue }
+        try {
+            $text = Get-Content $vdf -Raw
+            foreach ($m in [regex]::Matches($text, '"path"\s+"([^"]+)"')) {
+                $library = $m.Groups[1].Value -replace '\\\\', '\'
+                $roots += (Join-Path $library 'steamapps\common')
+            }
+        } catch {
+            # A VDF that cannot be read is not worth failing over; the fixed roots are still tried.
+        }
+    }
+
+    # Last resorts for a machine where nothing above resolved.
+    $roots += @(
+        'C:\Program Files (x86)\Steam\steamapps\common'
+        'D:\SteamLibrary\steamapps\common'
+    )
+
+    return ($roots | Where-Object { $_ } | Select-Object -Unique)
+}
+
+<#
+    Finds the game install: an explicit path, then SWYG_GAME_DIR, then every Steam library.
+
     A candidate only counts if it has both the game's Managed folder and a BepInEx install, since
     without both there is nothing to compile against.
+
+    The files are searched across every library, and only the full release counts - a leftover Playtest
+    install is ignored. The two live under different folder names, so matching the release by name, and
+    not by whichever library Steam happens to list first, is what keeps the old Playtest from being
+    picked when both are present.
 
     SWYG_GAME_DIR is the one a build agent wants: it has no Steam, so nothing else would resolve. The
     game is not redistributable, so an agent has to be given the Managed folder and BepInEx\core by
@@ -93,15 +134,10 @@ function Resolve-GameDir {
     if ($Explicit) { $candidates += $Explicit }
     if ($env:SWYG_GAME_DIR) { $candidates += $env:SWYG_GAME_DIR }
 
-    $names = @('Scam With Your Friends', 'Scam With Your Friends Playtest')
-    $roots = @(
-        "${env:ProgramFiles(x86)}\Steam\steamapps\common"
-        "${env:ProgramFiles}\Steam\steamapps\common"
-        "${env:HOME}\.local\share\Steam\steamapps\common"
-        "${env:HOME}\.steam\steam\steamapps\common"
-    )
-    foreach ($root in $roots) {
-        foreach ($name in $names) { $candidates += (Join-Path $root $name) }
+    $names = @('Scam With Your Friends')
+    $roots = Get-SteamGameRoots
+    foreach ($name in $names) {
+        foreach ($root in $roots) { $candidates += (Join-Path $root $name) }
     }
 
     foreach ($candidate in $candidates) {
@@ -258,6 +294,18 @@ function Invoke-Tests {
         Invoke-TestProject -Name 'WindowGeometry' -Dir $geometry `
                            -Project 'WindowGeometryTests.csproj' -Dotnet $dotnet.Source
     }
+
+    # The content catalog rules. Same arrangement: the real sources, no engine, .NET SDK only.
+    $content = Join-Path $PSScriptRoot 'tests\content'
+    if (Test-Path $content) {
+        Copy-Item (Join-Path $PSScriptRoot 'src\content\ContentSpecs.cs') `
+                  (Join-Path $content 'ContentSpecs.cs') -Force
+        Copy-Item (Join-Path $PSScriptRoot 'src\content\ContentValidation.cs') `
+                  (Join-Path $content 'ContentValidation.cs') -Force
+
+        Invoke-TestProject -Name 'ContentValidation' -Dir $content `
+                           -Project 'ContentTests.csproj' -Dotnet $dotnet.Source
+    }
 }
 
 $libSrc = Join-Path $PSScriptRoot 'src'
@@ -305,6 +353,7 @@ $common = @(
     (Join-Path $managed 'UnityEngine.TextCoreTextEngineModule.dll')
     (Join-Path $managed 'UnityEngine.TextCoreFontEngineModule.dll')
     (Join-Path $managed 'Unity.InputSystem.dll')
+    (Join-Path $managed 'Newtonsoft.Json.dll')
     (Join-Path $core 'BepInEx.dll')
     (Join-Path $core '0Harmony.dll')
 )

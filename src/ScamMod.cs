@@ -187,6 +187,8 @@ namespace ScamWYF.Modding.Core
 
             ModRegistry.Unregister(this);
             PatchCoordinator.UnpatchOwner(ModId);
+            Content.ContentRegistry.UnregisterOwner(ModId);
+            Content.ContentPatches.MaybeUninstall();
             Hotkeys.RemoveOwner(ModId);
             UiWindows.RemoveOwner(ModId);
             ModMenu.RemoveOwner(ModId);

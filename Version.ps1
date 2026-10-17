@@ -102,22 +102,35 @@ function Resolve-BuildVersion {
         return ConvertFrom-Describe '0.0.0' ''
     }
 
-    $root = & git -C $Path rev-parse --show-toplevel 2>$null
-    if ($LASTEXITCODE -ne 0 -or -not $root) {
-        Write-Warning "Not a git checkout, so the version cannot be read from a tag. Pass -Version to stamp one."
-        return ConvertFrom-Describe '0.0.0' ''
-    }
+    # A native command's stderr becomes a terminating error under $ErrorActionPreference='Stop' on
+    # PowerShell 7, and "fatal: not a git repository" is exactly what an untracked tree produces. Run
+    # the calls with error handling relaxed so a non-zero exit is something to inspect below, not a
+    # crash - a mod checked out without its .git is a normal thing, not a broken build.
+    $previous = $ErrorActionPreference
+    $previousNative = $PSNativeCommandUseErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $PSNativeCommandUseErrorActionPreference = $false
+    try {
+        $root = & git -C $Path rev-parse --show-toplevel 2>$null
+        if ($LASTEXITCODE -ne 0 -or -not $root) {
+            Write-Warning "Not a git checkout, so the version cannot be read from a tag. Pass -Version to stamp one."
+            return ConvertFrom-Describe '0.0.0' ''
+        }
 
-    # --always so an untagged tree still describes rather than failing, and --dirty so a build from a
-    # modified tree cannot be mistaken for a release.
-    $describe = & git -C $Path describe --tags --dirty --always 2>$null
-    if ($LASTEXITCODE -ne 0 -or -not $describe) {
-        Write-Warning "git describe failed, so the version could not be read. Pass -Version to stamp one."
-        return ConvertFrom-Describe '0.0.0' ''
-    }
+        # --always so an untagged tree still describes rather than failing, and --dirty so a build from a
+        # modified tree cannot be mistaken for a release.
+        $describe = & git -C $Path describe --tags --dirty --always 2>$null
+        if ($LASTEXITCODE -ne 0 -or -not $describe) {
+            Write-Warning "git describe failed, so the version could not be read. Pass -Version to stamp one."
+            return ConvertFrom-Describe '0.0.0' ''
+        }
 
-    $sha = & git -C $Path rev-parse --short HEAD 2>$null
-    return ConvertFrom-Describe $describe.Trim() "$($sha.Trim())"
+        $sha = & git -C $Path rev-parse --short HEAD 2>$null
+        return ConvertFrom-Describe $describe.Trim() "$($sha.Trim())"
+    } finally {
+        $ErrorActionPreference = $previous
+        $PSNativeCommandUseErrorActionPreference = $previousNative
+    }
 }
 
 function Write-BuildInfoSource {

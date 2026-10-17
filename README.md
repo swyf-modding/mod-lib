@@ -3,7 +3,7 @@
 # ScamWYF.Modding.Core
 
 ![license](https://img.shields.io/badge/license-MIT-blue)
-![game build](https://img.shields.io/badge/game-v82--playtest-blue)
+![game build](https://img.shields.io/badge/game-0.1.71--swyf-blue)
 ![Unity](https://img.shields.io/badge/Unity-6000.3.10f1-blue)
 ![BepInEx](https://img.shields.io/badge/BepInEx-5.4.23.5-blue)
 
@@ -202,7 +202,7 @@ No game DLL belongs in this repository or in a GitHub release.
 
 | Component | Verified Version |
 |---|---|
-| Scam With Your Friends | `v82-playtest` |
+| Scam With Your Friends | `0.1.71-swyf` |
 | Unity | `6000.3.10f1` |
 | BepInEx | `5.4.23.5`, Mono preloader |
 | Doorstop | `4.5.0` |
@@ -261,10 +261,23 @@ same-target patches reported with both owners.
 One poller for all mods, duplicate bindings reported instead of silently misfiring, rebindable in game,
 and suppressed while a text field has focus.
 
+### `ContentRegistry` — custom scams and apps, without conflicts
+
+Every mod registers conversation scams, scam types, OS apps, store products and sentinels through one
+registry. Entries are validated against the game's own catalog rules and merged into the game's catalogs,
+so custom content is listed, sold, prompted and paid out like the game's own. Duplicate ids across mods
+are rejected with both owners named rather than overwriting.
+
 ### `ModSettings` — range-checked config reads
 
 These `.cfg` files get hand-edited, so a value out of range is clamped and reported rather than passed
 on to a request path that will not survive it.
+
+### `GameWorkarounds` — prove-then-skip guards for game-build defects
+
+Defects in the shipped build that would otherwise throw every frame, such as the HUD menu-hint bind
+referencing an InputSystem type the build cannot resolve. Each guard lets the method fail once, arms
+a skip only on that specific failure, and does nothing on a build without the defect.
 
 ---
 
@@ -282,6 +295,11 @@ src/
 |-- config/
 |   |-- ConfigWatcher.cs   Config hot reload
 |   `-- ConfigEditor.cs    Settings form generated from a .cfg
+|-- content/
+|   |-- ContentSpecs.cs      Scam, app, product and sentinel shapes mods register
+|   |-- ContentValidation.cs Catalog rules, dependency-free and covered by tests
+|   |-- ContentRegistry.cs   Multi-mod registration with duplicate ids rejected
+|   `-- ContentPatches.cs    Merges registrations into the game's own catalogs
 `-- ui/
     |-- UiPanel.cs         The shared UIDocument
     |-- UiTheme.cs         Colours read from the game's live theme
