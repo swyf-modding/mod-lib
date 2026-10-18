@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using UnityEngine;
 using UnityEngine.UIElements;
 
 namespace ScamWYF.Modding.Core.Ui
@@ -49,11 +48,11 @@ namespace ScamWYF.Modding.Core.Ui
     /// </summary>
     /// <remarks>
     /// Previously each mod drew its own window: one hotkey per mod, several windows to mis-click, and
-    /// no way to see what else was installed. This is the opposite. One window, one hotkey, one tab per
+    /// no way to see what else was installed. This is the opposite. One menu, one hotkey, one tab per
     /// thing a mod wants to show.
     ///
-    /// A mod contributes a page and nothing else. The menu owns the window, the tab strip, the hotkey and
-    /// the layout, so pages cannot fight over any of it - the same argument this library makes about
+    /// A mod contributes a page and nothing else. The menu owns the screen, the side strip, the hotkey
+    /// and the layout, so pages cannot fight over any of it - the same argument this library makes about
     /// Harmony patches and hotkeys, applied to interfaces.
     ///
     /// The menu belongs to the library rather than to the mod handler. A user who only wants the AI
@@ -63,6 +62,10 @@ namespace ScamWYF.Modding.Core.Ui
     /// Two kinds of tab exist. A mod page is registered by a mod and disappears when that mod unloads.
     /// A built-in page is registered by key, so registering a key twice replaces it rather than
     /// stacking: that is how the mod handler takes over the "Plugins" tab the library reserves for it.
+    ///
+    /// The menu draws itself as its own fullscreen screen dressed exactly like the game's settings
+    /// pages - that is <see cref="SettingsMenu"/>'s job. This class is the page model and the public
+    /// API in front of it.
     /// </remarks>
     public static class ModMenu
     {
@@ -74,7 +77,7 @@ namespace ScamWYF.Modding.Core.Ui
 
         /// <summary>
         /// Reserved for whoever wants to show installed plugins - in practice the mod handler. The
-        /// library registers a placeholder so the tab strip has a sensible shape without it.
+        /// library registers a placeholder so the side strip has a sensible shape without it.
         /// </summary>
         public const string PluginsTab = "plugins";
 
@@ -86,37 +89,29 @@ namespace ScamWYF.Modding.Core.Ui
             public Func<bool> Available;
         }
 
-        /// <summary>
-        /// One tab in the strip. A tab points at either a built-in page or a mod's page, never both,
-        /// which keeps the selection logic down to one comparison.
-        /// </summary>
-        private sealed class Tab
-        {
-            public Button Button;
-            public string BuiltInKey;
-            public MenuPage Page;
-        }
-
         private static readonly List<MenuPage> Pages = new List<MenuPage>();
         private static readonly List<BuiltInPage> BuiltIn = new List<BuiltInPage>();
-        private static readonly List<Tab> Tabs = new List<Tab>();
 
-        private static UiWindow _window;
-        // Both scroll views rather than plain elements: a session with a dozen mods has more tabs than fit in a
-        // short window, and a page that cannot reach its own footer is a bug nobody can report usefully.
-        // Typed as ScrollView so their scroller visibility can be set; only ever used as VisualElement.
-        private static ScrollView _tabStrip;
-        private static ScrollView _pageHost;
-        private static string _selectedBuiltIn;
-        private static MenuPage _selected;
         private static int _nextOrder = 0;
         private static bool _refreshing;
-        private static bool _ready;
 
-        /// <summary>Whether the menu is on screen.</summary>
+        /// <summary>
+        /// One thing a tab strip can show, in a form any surface of the menu can consume: a
+        /// built-in page by key, or a mod page.
+        /// </summary>
+        internal sealed class TabEntry
+        {
+            internal string BuiltInKey;
+            internal MenuPage Page;
+            internal string Title;
+        }
+
+        /// <summary>
+        /// Whether the menu is showing anywhere: its own settings-page-shaped screen.
+        /// </summary>
         public static bool IsOpen
         {
-            get { return _window != null && _window.Visible; }
+            get { return SettingsMenu.IsOpen; }
         }
 
         /// <summary>Every registered mod page, including ones currently hidden.</summary>
@@ -165,8 +160,6 @@ namespace ScamWYF.Modding.Core.Ui
                 Pages.RemoveAll(page => page.OwnerId == modId);
             }
 
-            // Whatever is on screen belonged to a mod that no longer exists.
-            if (_selected != null && _selected.OwnerId == modId) _selected = null;
             Refresh();
         }
 
@@ -222,25 +215,19 @@ namespace ScamWYF.Modding.Core.Ui
 
         // ---------------------------------------------------------------- opening
 
-        /// <summary>Open the menu, creating the window if this is the first time.</summary>
+        /// <summary>
+        /// Open the menu: its own screen, dressed like the game's settings pages, over whatever the
+        /// game is showing. False when the overlay cannot be built yet.
+        /// </summary>
         public static bool Open()
         {
-            if (!EnsureWindow()) return false;
-
-            Refresh();
-            _window.Visible = true;
-            _window.Focus();
-            return true;
+            SettingsMenu.Open();
+            return SettingsMenu.IsOpen;
         }
 
-        /// <summary>Close the menu.</summary>
         public static void Close()
         {
-            if (_window != null) _window.Visible = false;
-
-            // Not HideOverlay unconditionally: a mod may have a floating overlay open at the same time,
-            // and closing the menu should not take that away with it.
-            if (!UiWindows.AnyVisible) UiPanel.HideOverlay();
+            SettingsMenu.Close();
         }
 
         public static void Toggle()
@@ -257,22 +244,39 @@ namespace ScamWYF.Modding.Core.Ui
         {
             if (owner == null) return false;
 
+            MenuPage target = null;
             foreach (var page in OrderedPages())
             {
                 if (page.OwnerId != owner.ModId) continue;
                 if (!string.Equals(page.Title, title, StringComparison.Ordinal)) continue;
                 if (!page.Available) continue;
-
-                if (!Open()) return false;
-                Select(page, null);
-                return true;
+                target = page;
+                break;
             }
-            return false;
+            if (target == null) return false;
+
+            SettingsMenu.Open();
+            SettingsMenu.SelectPage(target);
+            return SettingsMenu.IsOpen;
         }
 
         /// <summary>
-        /// Rebuild the tab strip and redraw the current page. A mod calls this after changing whether
-        /// its pages are available, or when it has new things to show.
+        /// Open the menu on one of the library's built-in tabs, identified by key - for example
+        /// <see cref="PluginsTab"/> or "config". For a hotkey that means "open the Plugins tab"
+        /// rather than merely "open the menu".
+        /// </summary>
+        public static bool ShowBuiltIn(string key)
+        {
+            if (string.IsNullOrEmpty(key)) return false;
+
+            if (!SettingsMenu.IsOpen) SettingsMenu.Open();
+            SettingsMenu.SelectBuiltIn(key);
+            return SettingsMenu.IsOpen;
+        }
+
+        /// <summary>
+        /// Rebuild the side strip and redraw the current page. A mod calls this after changing
+        /// whether its pages are available, or when it has new things to show.
         /// </summary>
         public static void Refresh()
         {
@@ -283,35 +287,7 @@ namespace ScamWYF.Modding.Core.Ui
 
             try
             {
-                if (!_ready || _tabStrip == null) return;
-
-                Tabs.Clear();
-                _tabStrip.Clear();
-
-                foreach (var builtIn in OrderedBuiltIn())
-                {
-                    if (!IsShowing(builtIn)) continue;
-                    AddTab(builtIn.Title, builtIn.Key, null);
-                }
-
-                foreach (var page in OrderedPages())
-                {
-                    if (!page.Available) continue;
-                    AddTab(page.Title, null, page);
-                }
-
-                if (Tabs.Count == 0)
-                {
-                    Widgets.Label(_tabStrip, "Nothing to show", true);
-                    if (_pageHost != null) _pageHost.Clear();
-                    return;
-                }
-
-                // Keep the current tab if it is still there, so editing a setting does not throw the
-                // user back to the first page. Otherwise land on the first one.
-                if (_selectedBuiltIn != null && HasBuiltIn(_selectedBuiltIn)) ShowBuiltIn(_selectedBuiltIn);
-                else if (_selected != null && HasPage(_selected)) ShowPage(_selected);
-                else Select(Tabs[0].Page, Tabs[0].BuiltInKey);
+                SettingsMenu.Rebuild();
             }
             finally
             {
@@ -322,182 +298,85 @@ namespace ScamWYF.Modding.Core.Ui
         // ---------------------------------------------------------------- startup
 
         /// <summary>
-        /// Register the tabs the library draws itself and bind the menu hotkey. Called once during the
-        /// library's startup, before any mod has finished loading.
+        /// Register the tabs the library draws itself and hook the menu's entry points into the
+        /// game's menus. Called once during the library's startup, before any mod has finished
+        /// loading.
         /// </summary>
         internal static void Start()
         {
             DefaultPages.Register();
-            _ready = true;
+
+            // The MODS buttons on the title menu and beside PRESS KIT on the settings page are
+            // attached before any mod loads, so the game puts them up whether or not any mod
+            // wants one.
+            NativeUi.Install();
         }
 
         // ---------------------------------------------------------------- internals
 
-        private static bool EnsureWindow()
+        // ---- shared page model, consumed by the menu screen
+
+        /// <summary>
+        /// Every tab currently showing, in strip order: library built-ins first, then mod pages.
+        /// Shared by the menu screen, which is the whole point of the shared model - a page
+        /// registered at runtime has to appear there at once.
+        /// </summary>
+        internal static TabEntry[] ListTabs()
         {
-            if (_window != null) return true;
-
-            _window = UiWindow.Create("library", "Mods", 90f, 70f, 920f, 580f);
-            if (_window.Element == null)
-            {
-                // One clear line in the log beats an invisible menu the user cannot explain.
-                UiLog.Warn("The mod menu could not be created: " +
-                           (_window.UnavailableReason ?? "unknown reason") + ". " +
-                           "Mods will still load, but there will be no in-game interface.");
-                _window = null;
-                return false;
-            }
-
-            _window.OnClosed = Close;
-            _window.ClearBody();
-
-            // Everything between the title bar and the footer lives in here: the tab strip on the left,
-            // the selected page on the right. Built below and added to the window once it is complete.
-            var split = new VisualElement();
-            split.style.flexGrow = 1f;
-            split.style.flexShrink = 1f;
-            split.style.flexDirection = FlexDirection.Row;
-            split.style.alignItems = Align.Stretch;
-            split.style.overflow = Overflow.Hidden;
-
-            // The tab strip scrolls independently of the page. A session with a dozen mods has more tabs
-            // than fit in a short window, and having the whole window scroll sideways to reach one is
-            // worse than a strip that scrolls on its own.
-            _tabStrip = new ScrollView(ScrollViewMode.Vertical);
-            _tabStrip.style.width = 190f;
-            _tabStrip.style.flexShrink = 0f;
-            _tabStrip.verticalScrollerVisibility = ScrollerVisibility.Auto;
-            _tabStrip.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
-            _tabStrip.style.paddingRight = 2f;
-            _tabStrip.style.paddingTop = 4f;
-            split.Add(_tabStrip);
-
-            var divider = new VisualElement();
-            divider.style.width = UiTheme.BorderWidth;
-            divider.style.backgroundColor = UiTheme.WindowBorder;
-            divider.style.flexShrink = 0f;
-            split.Add(divider);
-
-            // The page host is itself a scroll view, so a page that forgets to add its own still scrolls.
-            // Pages in this library open with one already; nesting two scroll views is harmless in UI
-            // Toolkit (the inner one takes the wheel), and an unscrollable page is not recoverable by
-            // whoever wrote it.
-            _pageHost = new ScrollView(ScrollViewMode.Vertical);
-            _pageHost.style.flexGrow = 1f;
-            _pageHost.style.flexShrink = 1f;
-            _pageHost.verticalScrollerVisibility = ScrollerVisibility.Auto;
-            _pageHost.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
-            split.Add(_pageHost);
-
-            // The missing piece that makes the window show anything at all: without this the tab strip
-            // and the page are built into a detached element and the window is an empty box.
-            _window.Body.Add(split);
-
-            // A footer with the things that are true of the whole menu rather than of one tab.
-            var footer = Widgets.Row(_window.Footer);
-            footer.style.flexGrow = 0f;
-            Widgets.Label(footer, GameBuild.Describe(), true);
-            Widgets.Filler(footer);
-            Widgets.DescribedButton(footer, "Reset size",
-                "Put the window back to its default size and position",
-                delegate { _window.ResetGeometry(); });
-            Widgets.DescribedButton(footer, "Close", "Close the menu. F1 opens it again.",
-                delegate { Close(); });
-
-            // Deliberately no Refresh here. Open() does it, and doing it twice would rebuild the strip
-            // and select the first tab all over again for no visible difference.
-            _ready = true;
-            return true;
-        }
-
-        private static void AddTab(string title, string builtInKey, MenuPage page)
-        {
-            var tab = new Tab { BuiltInKey = builtInKey, Page = page };
-
-            // Captured into locals, because a delegate closing over the loop's own parameters would
-            // otherwise bind every tab to whatever the last iteration left behind.
-            var capturedKey = builtInKey;
-            var capturedPage = page;
-
-            tab.Button = Widgets.TabButton(_tabStrip, title, delegate { Select(capturedPage, capturedKey); });
-            tab.Button.style.unityTextAlign = TextAnchor.MiddleLeft;
-            Tabs.Add(tab);
-        }
-
-        private static void Select(MenuPage page, string builtInKey)
-        {
-            if (!Open()) return;
-
-            _selected = page;
-            _selectedBuiltIn = builtInKey;
-
-            if (page != null) ShowPage(page);
-            else ShowBuiltIn(builtInKey);
-
-            Highlight();
-        }
-
-        private static void ShowPage(MenuPage page)
-        {
-            if (_pageHost == null) return;
-            _pageHost.Clear();
-
-            if (page.Build != null)
-            {
-                try
-                {
-                    page.Build(_pageHost);
-                }
-                catch (Exception ex)
-                {
-                    UiLog.Error("The '" + page + "' tab threw while building: " + ex);
-                    Widgets.Error(_pageHost, "This tab failed to draw: " + ex.Message);
-                }
-            }
-
-            _pageHost.MarkDirtyRepaint();
-        }
-
-        private static void ShowBuiltIn(string key)
-        {
-            if (_pageHost == null || string.IsNullOrEmpty(key)) return;
+            var tabs = new List<TabEntry>();
 
             foreach (var builtIn in OrderedBuiltIn())
             {
-                if (builtIn.Key != key) continue;
                 if (!IsShowing(builtIn)) continue;
-
-                _pageHost.Clear();
-                try
-                {
-                    if (builtIn.Build != null) builtIn.Build(_pageHost);
-                }
-                catch (Exception ex)
-                {
-                    UiLog.Error("The built-in '" + builtIn.Title + "' tab threw while building: " + ex);
-                    Widgets.Error(_pageHost, "This tab failed to draw: " + ex.Message);
-                }
-
-                _pageHost.MarkDirtyRepaint();
-                return;
+                tabs.Add(new TabEntry { BuiltInKey = builtIn.Key, Title = builtIn.Title });
             }
+
+            foreach (var page in OrderedPages())
+            {
+                if (!page.Available) continue;
+                tabs.Add(new TabEntry { Page = page, Title = page.Title });
+            }
+
+            return tabs.ToArray();
         }
 
         /// <summary>
-        /// Paint the selected tab. The strip is rebuilt on every refresh, so selection is derived from
-        /// what is selected rather than kept as per-button state that has to be re-applied.
+        /// Render one tab's contents into an arbitrary host. Same contract whichever surface calls:
+        /// a mod's build callback runs, and if it throws the host shows the error instead of the
+        /// throw reaching the game's UI loop.
         /// </summary>
-        private static void Highlight()
+        internal static void RenderTab(VisualElement host, string builtInKey, MenuPage page)
         {
-            for (int i = 0; i < Tabs.Count; i++)
-            {
-                var tab = Tabs[i];
-                var selected = _selectedBuiltIn != null
-                    ? tab.BuiltInKey == _selectedBuiltIn
-                    : tab.Page != null && tab.Page == _selected;
+            if (host == null) return;
 
-                Widgets.SetSelected(tab.Button, selected);
+            // Each selection is a fresh render; a page that expects to keep state across selections
+            // is one that will show stale content from the last visit.
+            host.Clear();
+
+            try
+            {
+                if (page != null)
+                {
+                    page.Build?.Invoke(host);
+                }
+                else if (builtInKey != null)
+                {
+                    foreach (var builtIn in OrderedBuiltIn())
+                    {
+                        if (builtIn.Key != builtInKey) continue;
+                        builtIn.Build?.Invoke(host);
+                        break;
+                    }
+                }
             }
+            catch (Exception ex)
+            {
+                UiLog.Error("The '" + (page != null ? page.ToString() : builtInKey) +
+                            "' tab threw while building: " + ex);
+                Widgets.Error(host, "This tab failed to draw: " + ex.Message);
+            }
+
+            host.MarkDirtyRepaint();
         }
 
         private static bool IsShowing(BuiltInPage page)
@@ -514,24 +393,6 @@ namespace ScamWYF.Modding.Core.Ui
                 // whole menu on every refresh.
                 return false;
             }
-        }
-
-        private static bool HasBuiltIn(string key)
-        {
-            foreach (var builtIn in OrderedBuiltIn())
-            {
-                if (builtIn.Key == key) return IsShowing(builtIn);
-            }
-            return false;
-        }
-
-        private static bool HasPage(MenuPage page)
-        {
-            foreach (var candidate in OrderedPages())
-            {
-                if (candidate == page) return candidate.Available;
-            }
-            return false;
         }
 
         /// <summary>Built-in tabs keep registration order, which is how "Mods" ends up first.</summary>

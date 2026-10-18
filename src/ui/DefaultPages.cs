@@ -28,44 +28,8 @@ internal static class DefaultPages
             // Order matters: these are the tabs that appear before any mod's own.
             ModMenu.SetBuiltInPage(ModMenu.ModsTab, "Mods", BuildMods);
             ModMenu.SetBuiltInPage(ModMenu.AboutTab, "About", BuildAbout);
-
-            // Reserved for whoever wants to show installed plugins. The library registers a placeholder
-            // so the strip has a sensible shape without it, and registering by key means the mod
-            // handler's real version replaces this rather than adding a second tab.
-            ModMenu.SetBuiltInPage(ModMenu.PluginsTab, "Plugins", BuildNoPlugins, delegate
-            {
-                return !PluginsClaimed;
-            });
-        }
-
-private static bool _pluginsClaimed;
-
-        /// <summary>
-        /// Withdraw the library's placeholder Plugins tab because a mod handler has registered a real
-        /// one under the same key.
-        /// </summary>
-        /// <remarks>
-        /// The placeholder exists so the tab strip has a sensible shape when no plugin manager is
-        /// installed. A mod handler that calls this and then registers its own tab under the same key
-        /// replaces the placeholder outright - the two registrations never appear together, because
-        /// SetBuiltInPage is keyed.
-        /// </remarks>
-        public static void ClaimPluginsTab()
-        {
-            _pluginsClaimed = true;
-            ModMenu.Refresh();
-        }
-
-        private static bool PluginsClaimed
-        {
-            get { return _pluginsClaimed; }
-        }
-
-        private static void BuildNoPlugins(VisualElement host)
-        {
-            Widgets.Note(host,
-                "The mod handler is not installed, so there is no list of installed plugins here. " +
-                "Every mod sharing this library is on the Mods tab.", false, false);
+            ModMenu.SetBuiltInPage(ModMenu.PluginsTab, "Plugins", BuiltInPluginsTab.Build, delegate { return true; });
+            ModMenu.SetBuiltInPage("config", "Config", BuiltInConfigTab.Build, delegate { return true; });
         }
 
         // ---------------------------------------------------------------- Mods
@@ -95,36 +59,43 @@ private static bool _pluginsClaimed;
 
         private static void BuildModRow(VisualElement parent, ScamMod mod)
         {
-            var row = Widgets.Column(parent);
-            row.style.marginBottom = 4f;
+            var box = Widgets.Column(parent);
+            box.style.marginBottom = 4f;
+            box.style.flexShrink = 0f;
 
-            var header = Widgets.Row(row);
+            var header = Widgets.Row(box);
             var name = Widgets.Label(header, mod.DisplayName, false);
             name.style.unityFontStyleAndWeight = FontStyle.Bold;
-            name.style.fontSize = 14f;
 
             Widgets.Filler(header);
 
             var version = Widgets.Label(header, mod.ModVersion, true);
-            version.style.fontSize = 11f;
 
-            Widgets.FieldRow(row, "Id", mod.ModId);
-            Widgets.FieldRow(row, "Config", mod.Config.ConfigFilePath);
+            // Config button if the mod has settings - opens the Config tab scrolled to this mod
+            var editor = mod.ConfigEditor;
+            if (editor != null && editor.SettingCount > 0)
+            {
+                Widgets.DescribedButton(header, "Config", "Open the Config tab for this mod",
+                    delegate { BuiltInConfigTab.OpenMod(mod); });
+            }
 
             switch (mod.State)
             {
-                case ModState.Active:
-                    break;
                 case ModState.Failed:
-                    Widgets.Error(row, "Failed to load: " + mod.FailureReason);
+                    Widgets.Error(box, "Failed to load: " + mod.FailureReason);
                     break;
                 case ModState.Rejected:
-                    Widgets.Error(row, "Rejected: " + (mod.FailureReason ?? "duplicate mod id"));
+                    Widgets.Error(box, "Rejected: " + (mod.FailureReason ?? "duplicate mod id"));
+                    break;
+                case ModState.Active:
                     break;
                 default:
-                    Widgets.Warning(row, "Still loading.");
+                    Widgets.Warning(box, "Still loading.");
                     break;
             }
+
+            Widgets.FieldRow(box, "Id", mod.ModId);
+            Widgets.FieldRow(box, "Config", mod.Config.ConfigFilePath);
 
             var watcher = mod.Watcher;
             if (watcher != null)
@@ -132,7 +103,7 @@ private static bool _pluginsClaimed;
                 var when = watcher.LastChangeUtc.HasValue
                     ? watcher.LastChangeUtc.Value.ToLocalTime().ToString("HH:mm:ss")
                     : "never";
-                Widgets.FieldRow(row, "Config reloads", watcher.ReloadCount + " so far, last at " + when);
+                Widgets.FieldRow(box, "Config reloads", watcher.ReloadCount + " so far, last at " + when);
             }
 
             var tabs = new List<string>();
@@ -140,10 +111,10 @@ private static bool _pluginsClaimed;
             {
                 if (page.OwnerId == mod.ModId && page.Available) tabs.Add(page.Title);
             }
-            if (tabs.Count > 0) Widgets.FieldRow(row, "Menu tabs", string.Join(", ", tabs.ToArray()));
+            if (tabs.Count > 0) Widgets.FieldRow(box, "Menu tabs", string.Join(", ", tabs.ToArray()));
 
-var windows = UiWindows.ForOwner(mod.ModId);
-            if (windows.Length > 0) Widgets.FieldRow(row, "Windows", string.Join(", ", windows));
+            var windows = UiWindows.ForOwner(mod.ModId);
+            if (windows.Length > 0) Widgets.FieldRow(box, "Windows", string.Join(", ", windows));
         }
 
         private static void BuildCollisions(VisualElement parent)
@@ -222,6 +193,10 @@ var windows = UiWindows.ForOwner(mod.ModId);
             Widgets.Heading(scroll, "This library");
             Widgets.FieldRow(scroll, "Menu hotkey", MenuHotkeyText());
             Widgets.FieldRow(scroll, "Menu config", LibraryConfigPath());
+            Widgets.FieldRow(scroll, "Entry points",
+                "The MODS button on the title menu, the MODS button beside PRESS KIT on the settings " +
+                "page, and the hotkey above. The menu is a full copy of the settings page itself, so " +
+                "it matches pixel for pixel; tabs are one per mod.");
 
             // Which panel the theme came from is the first thing to check when a mod's window looks
             // unlike the rest of the game, so it is worth saying outright rather than leaving the user

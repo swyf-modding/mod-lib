@@ -79,6 +79,33 @@ namespace ScamWYF.Modding.Core
             Describe();
         }
 
+        /// <summary>Write the current values to the config file on disk.</summary>
+        public void Save()
+        {
+            try
+            {
+                _file.Save();
+            }
+            catch (Exception ex)
+            {
+                Status = _file.ConfigFilePath + ": could not save - " + ex.Message;
+            }
+        }
+
+        /// <summary>Re-read the file from disk, discarding unsaved edits.</summary>
+        public void Reload()
+        {
+            try
+            {
+                _file.Reload();
+                Status = null;
+            }
+            catch (Exception ex)
+            {
+                Status = _file.ConfigFilePath + ": could not reload - " + ex.Message;
+            }
+        }
+
         /// <summary>
         /// Draw the whole config into a container, one collapsible group per config section.
         /// </summary>

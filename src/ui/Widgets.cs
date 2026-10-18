@@ -20,6 +20,13 @@ namespace ScamWYF.Modding.Core.Ui
     /// </remarks>
     public static class Widgets
     {
+        /// <summary>
+        /// When true, widgets are being rendered into the game's own settings tree, and adopt the
+        /// game's own class names so its stylesheet draws them. Set by the menu host around each
+        /// page's render; false everywhere else.
+        /// </summary>
+        internal static bool GameTree;
+
         /// <summary>The overlay every shared window is added to, creating the panel if needed.</summary>
         public static VisualElement Overlay
         {
@@ -102,8 +109,16 @@ namespace ScamWYF.Modding.Core.Ui
         public static Label Label(VisualElement parent, string text, bool muted)
         {
             var label = new Label(text ?? "");
-            label.style.color = muted ? UiTheme.TextMuted : UiTheme.Text;
-            label.style.fontSize = 13f;
+            if (GameTree)
+            {
+                if (muted) label.AddToClassList("setting-help");
+                else label.AddToClassList("setting-label");
+            }
+            else
+            {
+                label.style.color = muted ? UiTheme.TextMuted : UiTheme.Text;
+                label.style.fontSize = 13f;
+            }
             label.style.unityTextAlign = TextAnchor.MiddleLeft;
             label.style.whiteSpace = WhiteSpace.Normal;
             label.style.flexShrink = 1f;
@@ -130,16 +145,22 @@ namespace ScamWYF.Modding.Core.Ui
             header.style.flexShrink = 0f;
 
             var marker = new Label(open ? "v" : ">");
-            marker.style.color = UiTheme.TextMuted;
-            marker.style.fontSize = 11f;
+            if (!GameTree)
+            {
+                marker.style.color = UiTheme.TextMuted;
+                marker.style.fontSize = 11f;
+            }
             marker.style.width = 14f;
             marker.style.unityTextAlign = TextAnchor.MiddleCenter;
             marker.pickingMode = PickingMode.Ignore;
             header.Add(marker);
 
             var label = new Label(text ?? "");
-            label.style.color = UiTheme.Text;
-            label.style.fontSize = 13f;
+            if (!GameTree)
+            {
+                label.style.color = UiTheme.Text;
+                label.style.fontSize = 13f;
+            }
             label.style.unityTextAlign = TextAnchor.MiddleLeft;
             label.pickingMode = PickingMode.Ignore;
             header.Add(label);
@@ -193,24 +214,37 @@ namespace ScamWYF.Modding.Core.Ui
         public static VisualElement Heading(VisualElement parent, string text)
         {
             var column = Column(parent);
-            column.style.marginTop = 6f;
-            column.style.marginBottom = 2f;
+            if (!GameTree)
+            {
+                column.style.marginTop = 6f;
+                column.style.marginBottom = 2f;
+            }
 
             var label = new Label(text ?? "");
-            label.style.color = UiTheme.Text;
-            label.style.fontSize = 15f;
-            label.style.unityFontStyleAndWeight = FontStyle.Bold;
-            label.style.unityTextAlign = TextAnchor.LowerLeft;
-            label.style.marginLeft = 4f;
-            label.style.marginBottom = 3f;
+            if (GameTree)
+            {
+                label.AddToClassList("section-label");
+            }
+            else
+            {
+                label.style.color = UiTheme.Text;
+                label.style.fontSize = 15f;
+                label.style.unityFontStyleAndWeight = FontStyle.Bold;
+                label.style.unityTextAlign = TextAnchor.LowerLeft;
+                label.style.marginLeft = 4f;
+                label.style.marginBottom = 3f;
+            }
             column.Add(label);
 
-            var rule = new VisualElement();
-            rule.style.height = UiTheme.BorderWidth;
-            rule.style.backgroundColor = UiTheme.WindowBorder;
-            rule.style.marginBottom = 4f;
-            rule.pickingMode = PickingMode.Ignore;
-            column.Add(rule);
+            if (!GameTree)
+            {
+                var rule = new VisualElement();
+                rule.style.height = UiTheme.BorderWidth;
+                rule.style.backgroundColor = UiTheme.WindowBorder;
+                rule.style.marginBottom = 4f;
+                rule.pickingMode = PickingMode.Ignore;
+                column.Add(rule);
+            }
 
             return column;
         }
@@ -219,8 +253,15 @@ namespace ScamWYF.Modding.Core.Ui
         public static Label Paragraph(VisualElement parent, string text)
         {
             var label = new Label(text ?? "");
-            label.style.color = UiTheme.TextMuted;
-            label.style.fontSize = 12f;
+            if (GameTree)
+            {
+                label.AddToClassList("long-copy");
+            }
+            else
+            {
+                label.style.color = UiTheme.TextMuted;
+                label.style.fontSize = 12f;
+            }
             label.style.whiteSpace = WhiteSpace.Normal;
             label.style.marginLeft = 4f;
             label.style.marginRight = 4f;
@@ -242,7 +283,6 @@ namespace ScamWYF.Modding.Core.Ui
                 }
                 catch (Exception ex)
                 {
-                    // A mod's button throwing must not take the UI down with it.
                     UiLog.Error("A UI action threw: " + ex);
                 }
             })
@@ -250,17 +290,24 @@ namespace ScamWYF.Modding.Core.Ui
                 text = text ?? ""
             };
 
-            button.style.height = UiTheme.RowHeight + 4f;
-            button.style.minWidth = 88f;
-            button.style.marginLeft = 2f;
-            button.style.marginRight = 2f;
-            button.style.marginTop = 2f;
-            button.style.marginBottom = 2f;
-            button.style.paddingLeft = 10f;
-            button.style.paddingRight = 10f;
-            button.style.color = UiTheme.Text;
-            button.style.fontSize = 13f;
-            button.style.unityTextAlign = TextAnchor.MiddleCenter;
+            if (GameTree)
+            {
+                button.AddToClassList("reset-button");
+            }
+            else
+            {
+                button.style.height = UiTheme.RowHeight + 4f;
+                button.style.minWidth = 88f;
+                button.style.marginLeft = 2f;
+                button.style.marginRight = 2f;
+                button.style.marginTop = 2f;
+                button.style.marginBottom = 2f;
+                button.style.paddingLeft = 10f;
+                button.style.paddingRight = 10f;
+                button.style.color = UiTheme.Text;
+                button.style.fontSize = 13f;
+                button.style.unityTextAlign = TextAnchor.MiddleCenter;
+            }
             Touch(parent, button);
             return button;
         }
@@ -280,20 +327,62 @@ namespace ScamWYF.Modding.Core.Ui
             return button;
         }
 
+        /// <summary>
+        /// A toggle shown as a button with ON/OFF text, using the game's reset-button class.
+        /// For use inside the game's settings tree where raw Toggle elements don't match the style.
+        /// </summary>
+        public static Button ToggleButton(VisualElement parent, string text, bool value, Action<bool> onChanged)
+        {
+            var btn = new Button { text = value ? "ON" : "OFF" };
+            if (GameTree)
+            {
+                btn.AddToClassList("reset-button");
+            }
+            else
+            {
+                btn.style.height = UiTheme.RowHeight + 4f;
+                btn.style.minWidth = 60f;
+                btn.style.marginLeft = 2f;
+                btn.style.marginRight = 2f;
+                btn.style.marginTop = 2f;
+                btn.style.marginBottom = 2f;
+                btn.style.paddingLeft = 10f;
+                btn.style.paddingRight = 10f;
+                btn.style.color = UiTheme.Text;
+                btn.style.fontSize = 13f;
+                btn.style.unityTextAlign = TextAnchor.MiddleCenter;
+            }
+            btn.clicked += delegate
+            {
+                var next = btn.text != "ON";
+                btn.text = next ? "ON" : "OFF";
+                if (onChanged != null)
+                {
+                    try { onChanged(next); } catch (Exception ex) { UiLog.Error("A toggle handler threw: " + ex); }
+                }
+            };
+            Touch(parent, btn);
+            return btn;
+        }
+
         public static Toggle Toggle(VisualElement parent, string text, bool value, Action<bool> onChanged)
         {
             var toggle = new Toggle(text ?? "") { value = value };
-            toggle.style.color = UiTheme.Text;
-            toggle.style.fontSize = 13f;
-            toggle.style.marginLeft = 4f;
-            toggle.style.marginTop = 3f;
-            toggle.style.marginBottom = 3f;
-            toggle.style.height = UiTheme.Row;
-            if (toggle.labelElement != null)
+            if (!GameTree)
             {
-                toggle.labelElement.style.unityTextAlign = TextAnchor.MiddleLeft;
-                toggle.labelElement.style.whiteSpace = WhiteSpace.Normal;
+                toggle.style.color = UiTheme.Text;
+                toggle.style.fontSize = 13f;
+                toggle.style.marginLeft = 4f;
+                toggle.style.marginTop = 3f;
+                toggle.style.marginBottom = 3f;
+                toggle.style.minHeight = UiTheme.Row;
+                if (toggle.labelElement != null)
+                {
+                    toggle.labelElement.style.unityTextAlign = TextAnchor.MiddleLeft;
+                    toggle.labelElement.style.whiteSpace = WhiteSpace.Normal;
+                }
             }
+            // In GameTree we leave Toggle unstyled - the game's stylesheet may style it, or use ToggleButton instead.
 
             if (onChanged != null)
             {
@@ -323,20 +412,44 @@ namespace ScamWYF.Modding.Core.Ui
         {
             var field = new TextField(label ?? "") { value = value ?? "" };
             field.multiline = multiline;
-            field.style.color = UiTheme.FieldText;
-            field.style.fontSize = 13f;
-            field.style.marginLeft = 4f;
-            field.style.marginRight = 4f;
-            field.style.marginTop = 2f;
-            field.style.marginBottom = 2f;
-            field.style.flexGrow = 1f;
-            if (!multiline) field.style.height = UiTheme.Row;
+            if (GameTree)
+            {
+                field.AddToClassList("byok-field");
+            }
+            else
+            {
+                field.style.color = UiTheme.FieldText;
+                field.style.fontSize = 13f;
+            }
+            if (!GameTree)
+            {
+                field.style.marginLeft = 4f;
+                field.style.marginRight = 4f;
+                field.style.marginTop = 2f;
+                field.style.marginBottom = 2f;
+                field.style.flexGrow = 1f;
+                if (!multiline) field.style.height = UiTheme.Row;
+            }
+            else
+            {
+                field.style.marginLeft = 4f;
+                field.style.marginRight = 4f;
+                field.style.marginTop = 2f;
+                field.style.marginBottom = 2f;
+                field.style.flexGrow = 1f;
+            }
             if (field.labelElement != null)
             {
-                field.labelElement.style.color = UiTheme.TextMuted;
-                field.labelElement.style.fontSize = 12f;
+                if (!GameTree)
+                {
+                    field.labelElement.style.color = UiTheme.TextMuted;
+                    field.labelElement.style.fontSize = 12f;
+                }
                 field.labelElement.style.unityTextAlign = TextAnchor.MiddleLeft;
-                field.labelElement.style.minWidth = 150f;
+                if (!GameTree)
+                {
+                    field.labelElement.style.minWidth = 150f;
+                }
             }
 
             if (onChanged != null)
@@ -374,7 +487,10 @@ namespace ScamWYF.Modding.Core.Ui
             var slider = new SliderInt(min, max) { value = value, showInputField = true };
             slider.label = label ?? "";
             slider.style.color = UiTheme.Text;
-            slider.style.fontSize = 12f;
+            if (!GameTree)
+            {
+                slider.style.fontSize = 12f;
+            }
             slider.style.marginLeft = 4f;
             slider.style.marginRight = 4f;
             slider.style.marginTop = 2f;
@@ -415,20 +531,36 @@ namespace ScamWYF.Modding.Core.Ui
         {
             var drop = new DropdownField(label ?? "", choices ?? new List<string>(), selectedIndex,
                 Format, Format);
-            drop.style.color = UiTheme.Text;
-            drop.style.fontSize = 13f;
+            if (GameTree)
+            {
+                drop.AddToClassList("setting-dropdown");
+            }
+            else
+            {
+                drop.style.color = UiTheme.Text;
+                drop.style.fontSize = 13f;
+            }
             drop.style.marginLeft = 4f;
             drop.style.marginRight = 4f;
             drop.style.marginTop = 2f;
             drop.style.marginBottom = 2f;
             drop.style.flexGrow = 1f;
-            drop.style.height = UiTheme.Row;
+            if (!GameTree)
+            {
+                drop.style.height = UiTheme.Row;
+            }
             if (drop.labelElement != null)
             {
-                drop.labelElement.style.color = UiTheme.TextMuted;
-                drop.labelElement.style.fontSize = 12f;
+                if (!GameTree)
+                {
+                    drop.labelElement.style.color = UiTheme.TextMuted;
+                    drop.labelElement.style.fontSize = 12f;
+                }
                 drop.labelElement.style.unityTextAlign = TextAnchor.MiddleLeft;
-                drop.labelElement.style.minWidth = 150f;
+                if (!GameTree)
+                {
+                    drop.labelElement.style.minWidth = 150f;
+                }
             }
 
             if (onChanged != null)
@@ -459,8 +591,11 @@ namespace ScamWYF.Modding.Core.Ui
         public static Foldout Foldout(VisualElement parent, string text, bool open)
         {
             var fold = new Foldout { text = text ?? "", value = open };
-            fold.style.color = UiTheme.Text;
-            fold.style.fontSize = 13f;
+            if (!GameTree)
+            {
+                fold.style.color = UiTheme.Text;
+                fold.style.fontSize = 13f;
+            }
             fold.style.marginLeft = 2f;
             fold.style.marginTop = 3f;
             fold.style.marginBottom = 2f;
@@ -507,9 +642,12 @@ namespace ScamWYF.Modding.Core.Ui
 
             var label = new Label(text ?? "");
             label.style.whiteSpace = WhiteSpace.Normal;
-            label.style.fontSize = 12f;
             label.style.flexGrow = 1f;
             label.style.unityTextAlign = TextAnchor.UpperLeft;
+            if (!GameTree)
+            {
+                label.style.fontSize = 12f;
+            }
             if (error) label.style.color = UiTheme.Error;
             else if (warning) label.style.color = UiTheme.Warning;
             else label.style.color = UiTheme.TextMuted;
@@ -523,24 +661,52 @@ namespace ScamWYF.Modding.Core.Ui
         public static VisualElement FieldRow(VisualElement parent, string label, string value)
         {
             var row = Row(parent);
-            row.style.height = UiTheme.Row;
+            if (GameTree)
+            {
+                row.AddToClassList("setting-row");
+                row.AddToClassList("setting-row--compact");
+            }
+            else
+            {
+                row.style.minHeight = UiTheme.Row;
+            }
             row.style.marginLeft = 4f;
             row.style.marginRight = 4f;
+            row.style.overflow = Overflow.Hidden;
 
             var name = new Label(label ?? "");
-            name.style.color = UiTheme.TextMuted;
-            name.style.fontSize = 12f;
+            if (GameTree)
+            {
+                name.AddToClassList("setting-label");
+            }
+            else
+            {
+                name.style.color = UiTheme.TextMuted;
+                name.style.fontSize = 12f;
+            }
             name.style.unityTextAlign = TextAnchor.MiddleLeft;
-            name.style.minWidth = 150f;
+            if (!GameTree)
+            {
+                name.style.minWidth = 150f;
+            }
             name.style.flexShrink = 0f;
             row.Add(name);
 
             var content = new Label(value ?? "");
-            content.style.color = UiTheme.Text;
-            content.style.fontSize = 12f;
+            if (GameTree)
+            {
+                content.AddToClassList("setting-value");
+            }
+            else
+            {
+                content.style.color = UiTheme.Text;
+                content.style.fontSize = 12f;
+            }
             content.style.whiteSpace = WhiteSpace.Normal;
             content.style.unityTextAlign = TextAnchor.MiddleLeft;
             content.style.flexGrow = 1f;
+            content.style.flexShrink = 1f;
+            content.style.flexBasis = 0f;
             row.Add(content);
 
             return row;
