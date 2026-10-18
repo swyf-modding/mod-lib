@@ -14,6 +14,9 @@
 ![Harmony](https://img.shields.io/badge/Harmony-51796aa?style=for-the-badge)
 ![BepInEx](https://img.shields.io/badge/BepInEx-5.4.23.5-14172c?style=for-the-badge)
 
+> ⚠️ Linux build support (`build.ps1` under `pwsh`, for the Setup/Proton flow) is **very experimental**;
+> it is validated on one Linux machine only. Windows remains the reference platform.
+
 </div>
 
 ---
@@ -82,6 +85,9 @@ This project is not affiliated with or endorsed by the developers or publisher o
   [Setup](https://github.com/swyf-modding/Setup) installs both, because this game ships a stripped `mscorlib` that BepInEx
   cannot start without
 - The .NET SDK, for the behaviour tests only. Building does not need it
+- **PowerShell.** Windows PowerShell 5.1 or PowerShell 7 on Windows. On Linux and macOS it is
+  [PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/installing-powershell)
+  (`pwsh`), since there is no Windows PowerShell there; the scripts are the same either way
 
 ### Installation
 
@@ -95,12 +101,12 @@ This project is not affiliated with or endorsed by the developers or publisher o
 3. Build. `build.ps1` builds the library first, then your mod against the dll it just produced:
 
    ```powershell
-   & ".\vendor\ScamWYF.Modding.Core\build.ps1" -Project YourMod -Sources ".\src"
+   & "./vendor/ScamWYF.Modding.Core/build.ps1" -Project YourMod -Sources "./src"
    ```
 
-4. Copy `YourMod.dll` into `BepInEx\plugins`.
+4. Copy `YourMod.dll` into `BepInEx/plugins`.
 
-The library is **not** installed into `plugins`. `BepInEx\core` is where it belongs, and `build.ps1`
+The library is **not** installed into `plugins`. `BepInEx/core` is where it belongs, and `build.ps1`
 puts it there — BepInEx loads `core` first so every mod can resolve it, and anything in `plugins` would
 be loaded as though it were a plugin.
 
@@ -109,9 +115,13 @@ be loaded as though it were a plugin.
 ```powershell
 git clone --recurse-submodules https://github.com/swyf-modding/mod-lib.git
 cd mod-lib
-.\build.ps1 -LibraryOnly          # does it compile
-.\build.ps1 -LibraryOnly -Test    # does it compile, and do the tests pass
+./build.ps1 -LibraryOnly          # does it compile
+./build.ps1 -LibraryOnly -Test    # does it compile, and do the tests pass
 ```
+
+On Linux and macOS run those with `pwsh` — `pwsh ./build.ps1 -LibraryOnly`. There is no Windows
+PowerShell there. Everything else is the same, and the game is found by itself: Steam's libraries under
+`~/.steam` and `~/.local/share`, or whatever `-GameDir` or `SWYG_GAME_DIR` says.
 
 The library's own `build.ps1` needs the game's assemblies to compile against. It finds the install
 itself; pass `-GameDir`, or set `SWYG_GAME_DIR`, if it cannot.
@@ -125,7 +135,7 @@ have a working mod that already has a menu tab, settings and hot reload.
 using BepInEx;
 using ScamWYF.Modding.Core;
 
-// PluginBuildInfo.Version is generated into obj\ by build.ps1 from your repo's git tag. See
+// PluginBuildInfo.Version is generated into obj/ by build.ps1 from your repo's git tag. See
 // "Version Stamping" below - do not replace it with a literal.
 [BepInPlugin(PluginGuid, "My Mod", PluginBuildInfo.Version)]
 public sealed class Plugin : ScamMod
@@ -176,7 +186,7 @@ seals the Unity callbacks and handles them once for every mod, so two mods canno
 ### Testing
 
 ```powershell
-.\build.ps1 -LibraryOnly -Test
+./build.ps1 -LibraryOnly -Test
 ```
 
 `-Test` does two things:
@@ -192,7 +202,8 @@ seals the Unity callbacks and handles them once for every mod, so two mods canno
    | [`tests/window`](tests/window) | window size and position clamping: minimums, screen limits, idempotence |
 
 The behaviour tests need the .NET SDK and are skipped with a warning if `dotnet` is not on `PATH`. They
-use nothing but the BCL, so they run on Linux — which is what the CI workflow does on every push.
+use nothing but the BCL, so they run on Linux too — `pwsh ./build.ps1 -LibraryOnly -Test` — which is what
+the CI workflow checks on every push.
 
 No game DLL belongs in this repository or in a GitHub release.
 
@@ -208,7 +219,7 @@ No game DLL belongs in this repository or in a GitHub release.
 | Doorstop | `4.5.0` |
 | C# language level | `7.3` |
 | Backend | Mono, with managed stripping **on** |
-| Platform | Windows x64 |
+| Platform | Windows x64, including under Proton on Linux |
 
 Other game builds are untested. `GameBuild.CheckUnityVersion` reports a mismatch as a warning naming
 both versions rather than assuming support.
@@ -312,6 +323,8 @@ src/
     `-- WindowPlacement.cs Saved size and position
 template/Plugin.cs         A working mod to copy
 Version.ps1                Version stamping, shared with every mod built through this library
+GameDir.ps1                Finding the game install, shared with every mod built through this library
+tools/                     The [BepInPlugin] version check, compiled and run after every build
 tests/                     API surface compile check, and behaviour tests
 ```
 
@@ -332,7 +345,7 @@ anyone editing a number in a source file.
 A commit past the tag adds `+3.g0a1b2c3`, a prerelease tag keeps its name (`v1.2.3-rc1` →
 `1.2.3-rc1+g0a1b2c3`), an uncommitted tree is marked `.dirty` and warned about, and an untagged tree
 reports `0.0.0+untagged.g0a1b2c3` — which says so rather than claiming to be 1.0.0. The generated
-`obj\BuildInfo.g.cs` is not committed.
+`obj/BuildInfo.g.cs` is not committed.
 
 **A mod resolves its own version and passes it down.** This file lives in a submodule, so resolving it
 here would report *mod-lib's* tags rather than the mod's — the two are released independently and are
@@ -351,7 +364,8 @@ player. A hardcoded `"1.0.0"` is right on the first release and silently wrong o
 ## Continuous Builds
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs the behaviour tests on every push and pull
-request, on a hosted runner. That is all it runs, and the limit is deliberate.
+request, on a hosted runner, and checks the build script itself. That is all it runs, and the limit is
+deliberate.
 
 The build compiles with `-nostdlib+` against the game's own `mscorlib`, and those are not ours to
 redistribute, so a hosted runner cannot do it. It could be given them as an artefact or a secret, but a
@@ -360,14 +374,19 @@ self-hosted runner is simpler than either and there is no reason to pretend othe
 | | Where | What |
 |---|---|---|
 | behaviour tests | CI, hosted | pure BCL, no game — logic a compile cannot catch |
+| the build script | CI, hosted | every `.ps1` parses under `pwsh`, and `GameDir.ps1` resolves a fabricated install |
 | the build | your machine | the real compile, and the API surface check |
 
 The API surface check is the tier that matters most here, because it is the one a hosted runner cannot
 do and the one that catches a stripped API the build calls. It runs before every release:
 
 ```powershell
-.\build.ps1 -LibraryOnly -Test -NoCopy
+./build.ps1 -LibraryOnly -Test -NoCopy
 ```
+
+The machine that has the game can be Linux: `pwsh ./build.ps1 -LibraryOnly -Test -NoCopy`. The compile
+reads the game's Windows assemblies and BepInEx's as metadata references, which is all it needs from
+them, and a Proton install is found under the Steam libraries in `~/.steam` and `~/.local/share`.
 
 There was a self-hosted CI job for this once. It is gone because a self-hosted job with no runner
 registered does not fail — it queues, and sits there until GitHub cancels it 24 hours later, so every
@@ -380,7 +399,7 @@ Releases are published by hand; see [RELEASING.md](RELEASING.md).
 ## Security
 
 Please do not publish suspected vulnerabilities, credentials, authentication tickets, private game data,
-or sensitive logs in a public issue — including the contents of `BepInEx\LogOutput.log`, which contains
+or sensitive logs in a public issue — including the contents of `BepInEx/LogOutput.log`, which contains
 the API keys mods configure.
 
 The project deliberately does not redistribute proprietary assemblies: the game's own assemblies stay in

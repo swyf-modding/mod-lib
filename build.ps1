@@ -16,21 +16,30 @@
     A mod repo does not keep a copy of this script. It adds the library as a submodule and calls this
     file, so every mod is built the same way and there is only one place where the compiler flags live.
 
+    Finding the game install is GameDir.ps1, beside this file. It is a separate dot-sourced script
+    rather than functions in here, so a mod's own build.ps1 can resolve the game the same way before it
+    calls this one.
+
         # from a mod repo (see that repo's build.ps1 for the wrapper)
-        ..\vendor\ScamWYF.Modding.Core\build.ps1 `
-            -Project MyMod -Sources .\src -Refs "...\Newtonsoft.Json.dll"
+        ../vendor/ScamWYF.Modding.Core/build.ps1 `
+            -Project MyMod -Sources ./src -Refs ".../Newtonsoft.Json.dll"
 
         # build just the library dll
-        .\build.ps1 -LibraryOnly
+        ./build.ps1 -LibraryOnly
 
-    The library dll is installed into BepInEx\core, next to BepInEx.dll and 0Harmony.dll, which is
+    The library dll is installed into BepInEx/core, next to BepInEx.dll and 0Harmony.dll, which is
     where BepInEx already keeps the assemblies every plugin may rely on. It is deliberately NOT put in
-    BepInEx\plugins: that folder is for plugins, and the chainloader would try to load it as one.
+    BepInEx/plugins: that folder is for plugins, and the chainloader would try to load it as one.
 
-    No .NET SDK needed. Point -CscDll at a Roslyn csc.dll and it runs with `dotnet`; otherwise it
-    looks for csc.exe from Visual Studio Build Tools.
+    No .NET SDK needed. Point -CscDll at a Roslyn csc.dll and it runs with `dotnet`; otherwise it looks
+    for csc.exe from Visual Studio Build Tools, or the copy inside a .NET SDK.
 
-      .\build.ps1 -CscDll C:\path\to\csc.dll -GameDir "C:\...\Scam With Your Friends"
+      ./build.ps1 -CscDll /usr/lib/dotnet/sdk/10.0.112/Roslyn/bincore/csc.dll
+      ./build.ps1 -GameDir "/home/you/.steam/steam/steamapps/common/Scam With Your Friends"
+
+    Windows PowerShell 5.1 and PowerShell 7 both run this, on Windows and elsewhere. Off Windows there
+    is only pwsh, so that has to be installed; the script is otherwise the same, and the game is found
+    under the Steam libraries in ~/.steam and ~/.local/share.
 #>
 [CmdletBinding()]
 param(
@@ -77,85 +86,11 @@ param(
 $ErrorActionPreference = 'Stop'
 
 <#
-    Every Steam library's 'common' folder, default install first, then whatever libraryfolders.vdf
-    names. The game is installed to a library, not necessarily the one Steam itself lives in - it is
-    on D: here while Steam is on C: - so reading the VDF is what makes this work on a machine whose
-    libraries are somewhere unexpected, without hardcoding one drive letter.
+    Finding the game install lives in its own file, GameDir.ps1, so that a mod's build.ps1 can ask the
+    same question the same way. A mod needs the answer before it can call this script, and a second
+    copy of the Steam search is how two copies quietly stop agreeing about where the game is.
 #>
-function Get-SteamGameRoots {
-    $roots = @()
-    foreach ($steam in @("${env:ProgramFiles(x86)}\Steam", "${env:ProgramFiles}\Steam",
-                         "${env:LOCALAPPDATA}\Steam")) {
-        if (-not $steam) { continue }
-        $roots += (Join-Path $steam 'steamapps\common')
-
-        $vdf = Join-Path $steam 'steamapps\libraryfolders.vdf'
-        if (-not (Test-Path $vdf)) { continue }
-        try {
-            $text = Get-Content $vdf -Raw
-            foreach ($m in [regex]::Matches($text, '"path"\s+"([^"]+)"')) {
-                $library = $m.Groups[1].Value -replace '\\\\', '\'
-                $roots += (Join-Path $library 'steamapps\common')
-            }
-        } catch {
-            # A VDF that cannot be read is not worth failing over; the fixed roots are still tried.
-        }
-    }
-
-    # Last resorts for a machine where nothing above resolved.
-    $roots += @(
-        'C:\Program Files (x86)\Steam\steamapps\common'
-        'D:\SteamLibrary\steamapps\common'
-    )
-
-    return ($roots | Where-Object { $_ } | Select-Object -Unique)
-}
-
-<#
-    Finds the game install: an explicit path, then SWYG_GAME_DIR, then every Steam library.
-
-    A candidate only counts if it has both the game's Managed folder and a BepInEx install, since
-    without both there is nothing to compile against.
-
-    The files are searched across every library, and only the full release counts - a leftover Playtest
-    install is ignored. The two live under different folder names, so matching the release by name, and
-    not by whichever library Steam happens to list first, is what keeps the old Playtest from being
-    picked when both are present.
-
-    SWYG_GAME_DIR is the one a build agent wants: it has no Steam, so nothing else would resolve. The
-    game is not redistributable, so an agent has to be given the Managed folder and BepInEx\core by
-    whatever it is already set up to use - a cached artifact, a mounted copy, or a self-hosted runner
-    where the game is installed.
-#>
-function Resolve-GameDir {
-    param([string]$Explicit)
-
-    $candidates = @()
-    if ($Explicit) { $candidates += $Explicit }
-    if ($env:SWYG_GAME_DIR) { $candidates += $env:SWYG_GAME_DIR }
-
-    $names = @('Scam With Your Friends')
-    $roots = Get-SteamGameRoots
-    foreach ($name in $names) {
-        foreach ($root in $roots) { $candidates += (Join-Path $root $name) }
-    }
-
-    foreach ($candidate in $candidates) {
-        if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
-        $managedOk = Test-Path (Join-Path $candidate 'Scam With Your Friends_Data\Managed\mscorlib.dll')
-        $bepOk     = Test-Path (Join-Path $candidate 'BepInEx\core\BepInEx.dll')
-        if ($managedOk -and $bepOk) { return $candidate }
-    }
-
-    $hints = ($candidates | Where-Object { $_ } | Select-Object -Unique) -join "`n  "
-    throw @"
-Could not find the game install. It needs 'Scam With Your Friends_Data\Managed' and BepInEx\core.
-Pass -GameDir, or set SWYG_GAME_DIR.
-
-Looked in:
-  $hints
-"@
-}
+. (Join-Path $PSScriptRoot 'GameDir.ps1')
 
 <#
     Roslyn, from wherever this machine happens to keep it: an explicit csc.dll, VS Build Tools, or
@@ -178,11 +113,11 @@ function Resolve-Csc {
         return $script:CscCmd
     }
 
-    foreach ($root in @("${env:ProgramFiles(x86)}\Microsoft Visual Studio",
-                        "${env:ProgramFiles}\Microsoft Visual Studio")) {
+    foreach ($root in @("${env:ProgramFiles(x86)}/Microsoft Visual Studio",
+                        "${env:ProgramFiles}/Microsoft Visual Studio")) {
         if (-not (Test-Path $root)) { continue }
 
-        $exe = Get-ChildItem -Path (Join-Path $root '*\MSBuild\Current\Bin\Roslyn\csc.exe') `
+        $exe = Get-ChildItem -Path (Join-Path $root '*/MSBuild/Current/Bin/Roslyn/csc.exe') `
             -ErrorAction SilentlyContinue | Select-Object -First 1
         if (-not $exe) {
             $exe = Get-ChildItem -Path $root -Filter csc.exe -Recurse -Depth 6 -ErrorAction SilentlyContinue |
@@ -195,11 +130,11 @@ function Resolve-Csc {
         }
     }
 
-    foreach ($root in @("${env:ProgramFiles}\dotnet\sdk", "$env:USERPROFILE\.dotnet\sdk",
-                        '/usr/lib/dotnet/sdk', '/usr/share/dotnet/sdk')) {
+    foreach ($root in @("${env:ProgramFiles}/dotnet/sdk", "$env:USERPROFILE/.dotnet/sdk",
+                        "$env:HOME/.dotnet/sdk", '/usr/lib/dotnet/sdk', '/usr/share/dotnet/sdk')) {
         if (-not (Test-Path $root)) { continue }
 
-        $dll = Get-ChildItem -Path (Join-Path $root '*\Roslyn\bincore\csc.dll') `
+        $dll = Get-ChildItem -Path (Join-Path $root '*/Roslyn/bincore/csc.dll') `
             -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1
         if ($dll) {
             $script:CscPath = $dll.FullName
@@ -259,15 +194,15 @@ function Invoke-Tests {
     # own repository and stamps the library with mod-lib's commit. That is not cosmetic: the library
     # dll it rebuilds is the one a mod ships in its release zip, so running -Test would leave the pair
     # disagreeing about which commit they came from.
-    & $PSScriptRoot\build.ps1 -Project ScamWYF.Modding.ApiCheck `
-                              -Sources (Join-Path $PSScriptRoot 'tests\api') `
+    & (Join-Path $PSScriptRoot 'build.ps1') -Project ScamWYF.Modding.ApiCheck `
+                              -Sources (Join-Path $PSScriptRoot 'tests/api') `
                               -OutDir (Join-Path $OutDir 'apicheck') `
                               -GameDir $GameDir -CscDll $CscDll -NoCopy -BuildVersion $BuildVersion
     if ($LASTEXITCODE -ne 0) { throw "the API surface check failed to compile" }
 
     # Second: the behaviour tests. These need the .NET SDK rather than just Roslyn, so they are skipped
     # with a warning rather than failing the build on a machine that can still ship a mod.
-    $tests = Join-Path $PSScriptRoot 'tests\watcher'
+    $tests = Join-Path $PSScriptRoot 'tests/watcher'
     if (-not (Test-Path $tests)) {
         Write-Host "No behaviour tests at $tests" -ForegroundColor Yellow
         return
@@ -280,15 +215,15 @@ function Invoke-Tests {
     }
 
     # The sources are copied in so each test project always compiles what is actually shipping.
-    Copy-Item (Join-Path $PSScriptRoot 'src\config\ConfigWatcher.cs') `
+    Copy-Item (Join-Path $PSScriptRoot 'src/config/ConfigWatcher.cs') `
               (Join-Path $tests 'ConfigWatcher.cs') -Force
 
     Invoke-TestProject -Name 'ConfigWatcher' -Dir $tests -Project 'WatcherTests.csproj' -Dotnet $dotnet.Source
 
     # The window geometry arithmetic. Same arrangement: the real source, no engine, .NET SDK only.
-    $geometry = Join-Path $PSScriptRoot 'tests\window'
+    $geometry = Join-Path $PSScriptRoot 'tests/window'
     if (Test-Path $geometry) {
-        Copy-Item (Join-Path $PSScriptRoot 'src\ui\WindowGeometry.cs') `
+        Copy-Item (Join-Path $PSScriptRoot 'src/ui/WindowGeometry.cs') `
                   (Join-Path $geometry 'WindowGeometry.cs') -Force
 
         Invoke-TestProject -Name 'WindowGeometry' -Dir $geometry `
@@ -296,11 +231,11 @@ function Invoke-Tests {
     }
 
     # The content catalog rules. Same arrangement: the real sources, no engine, .NET SDK only.
-    $content = Join-Path $PSScriptRoot 'tests\content'
+    $content = Join-Path $PSScriptRoot 'tests/content'
     if (Test-Path $content) {
-        Copy-Item (Join-Path $PSScriptRoot 'src\content\ContentSpecs.cs') `
+        Copy-Item (Join-Path $PSScriptRoot 'src/content/ContentSpecs.cs') `
                   (Join-Path $content 'ContentSpecs.cs') -Force
-        Copy-Item (Join-Path $PSScriptRoot 'src\content\ContentValidation.cs') `
+        Copy-Item (Join-Path $PSScriptRoot 'src/content/ContentValidation.cs') `
                   (Join-Path $content 'ContentValidation.cs') -Force
 
         Invoke-TestProject -Name 'ContentValidation' -Dir $content `
@@ -320,9 +255,9 @@ if (-not $LibraryOnly -and [string]::IsNullOrWhiteSpace($Project)) {
 if (-not $OutDir) { $OutDir = Join-Path $PSScriptRoot 'bin' }
 
 $GameDir = Resolve-GameDir $GameDir
-$managed = Join-Path $GameDir 'Scam With Your Friends_Data\Managed'
-$core    = Join-Path $GameDir 'BepInEx\core'
-$plugins = Join-Path $GameDir 'BepInEx\plugins'
+$managed = Join-Path $GameDir 'Scam With Your Friends_Data/Managed'
+$core    = Join-Path $GameDir 'BepInEx/core'
+$plugins = Join-Path $GameDir 'BepInEx/plugins'
 
 # Where the shared library is built, and where it ends up.
 #
@@ -385,7 +320,7 @@ else {
     # Build the library first, so a mod can never be compiled against a stale version of it. This is
     # what makes "reference the library" safe: the reference is always to what was just built.
     Write-Host "Building the shared library first..." -ForegroundColor DarkGray
-    & $PSScriptRoot\build.ps1 -LibraryOnly -OutDir $libOut -GameDir $GameDir -CscDll $CscDll -NoCopy -BuildVersion $BuildVersion
+    & (Join-Path $PSScriptRoot 'build.ps1') -LibraryOnly -OutDir $libOut -GameDir $GameDir -CscDll $CscDll -NoCopy -BuildVersion $BuildVersion
     if ($LASTEXITCODE -ne 0) { throw "the shared library failed to build (exit $LASTEXITCODE)" }
 
     if (-not (Test-Path $libDll)) { throw "The shared library did not produce $libDll" }
@@ -421,7 +356,7 @@ if ($BuildVersion.Dirty) {
 }
 
 # Generated into obj\, which is gitignored: a committed copy is the version drift this replaces.
-$buildInfoSource = Join-Path $PSScriptRoot 'obj\BuildInfo.g.cs'
+$buildInfoSource = Join-Path $PSScriptRoot 'obj/BuildInfo.g.cs'
 Write-BuildInfoSource -OutFile $buildInfoSource -BuildVersion $BuildVersion
 $sourceFiles += $buildInfoSource
 
@@ -452,7 +387,7 @@ Write-Host "Built $outDll" -ForegroundColor Green
 # Every build, not just a release. This is the one check that would have caught the regression where both
 # published mods loaded zero plugins: the version in [BepInPlugin] had build metadata in it, BepInEx
 # could not parse it, and nothing anywhere said so except a line in a log file nobody had open.
-& (Join-Path $PSScriptRoot 'tools\test-bepinex-version.ps1') -Assembly $outDll -Cecil (Join-Path $core 'Mono.Cecil.dll')
+& (Join-Path $PSScriptRoot 'tools/test-bepinex-version.ps1') -Assembly $outDll -Cecil (Join-Path $core 'Mono.Cecil.dll')
 if ($LASTEXITCODE -ne 0) { throw "$assemblyName has a [BepInPlugin] version BepInEx will refuse, so it would not load" }
 
 if ($Test) { Invoke-Tests }
@@ -486,6 +421,6 @@ Get-ChildItem $OutDir -Filter 'ScamWYF.Modding.Core.dll' -ErrorAction SilentlyCo
     if ($EmbedLibrary) { return }
     Write-Host ""
     Write-Warning ("A copy of ScamWYF.Modding.Core.dll is sitting in $OutDir. Do not deploy it: " +
-                   "deploy only the mod dll alongside the one in BepInEx\core, or the mod gets its own " +
+                   "deploy only the mod dll alongside the one in BepInEx/core, or the mod gets its own " +
                    "copy of every shared service.")
 }
