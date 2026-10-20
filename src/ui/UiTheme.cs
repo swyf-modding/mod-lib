@@ -19,8 +19,9 @@ namespace ScamWYF.Modding.Core.Ui
     ///
     /// If the theme cannot be read - a stripped build, a game update that renames the variables,
     /// or the menu being built before any themed element has resolved - the fallbacks below are
-    /// used. They are a dark neutral palette chosen to sit quietly against most game menus, so a
-    /// failure here degrades to "plain" rather than to "unreadable".
+    /// used. They are the website's palette - the same warm browns, creams and golds the
+    /// switchboard and the site use - so a failure here degrades to "plain, but ours" rather than
+    /// to "unreadable" and a foreign grey box dropped on top of the game's own menus.
     /// </remarks>
     public static class UiTheme
     {
@@ -67,18 +68,19 @@ namespace ScamWYF.Modding.Core.Ui
         private static readonly CustomStyleProperty<float> SingleLineHeight =
             new CustomStyleProperty<float>("--unity-metrics-single_line_height");
 
-        // Fallbacks. Dark, low-chroma, and legible; see the remarks above.
-        private static readonly Color FallbackWindow = new Color(0.13f, 0.13f, 0.15f, 0.97f);
-        private static readonly Color FallbackBorder = new Color(1f, 1f, 1f, 0.14f);
-        private static readonly Color FallbackText = new Color(0.90f, 0.90f, 0.92f);
-        private static readonly Color FallbackMuted = new Color(0.66f, 0.66f, 0.70f);
-        private static readonly Color FallbackButton = new Color(0.22f, 0.23f, 0.27f, 1f);
-        private static readonly Color FallbackButtonHover = new Color(0.30f, 0.32f, 0.37f, 1f);
-        private static readonly Color FallbackActive = new Color(0.16f, 0.42f, 0.72f, 1f);
-        private static readonly Color FallbackField = new Color(0.08f, 0.08f, 0.10f, 1f);
-        private static readonly Color FallbackError = new Color(0.95f, 0.42f, 0.40f);
-        private static readonly Color FallbackWarning = new Color(0.95f, 0.76f, 0.35f);
-        private static readonly Color FallbackPanel = new Color(0.17f, 0.17f, 0.20f, 1f);
+        // Fallbacks. The website's palette, so the in-game menu, the switchboard and the site are
+        // one visual system; see the remarks above for when these are used at all.
+        private static readonly Color FallbackWindow = new Color(0.078f, 0.055f, 0.043f, 0.97f);
+        private static readonly Color FallbackBorder = new Color(0.239f, 0.184f, 0.149f, 0.60f);
+        private static readonly Color FallbackText = new Color(0.953f, 0.886f, 0.753f);
+        private static readonly Color FallbackMuted = new Color(0.804f, 0.725f, 0.561f);
+        private static readonly Color FallbackButton = new Color(0.071f, 0.051f, 0.043f, 1f);
+        private static readonly Color FallbackButtonHover = new Color(0.153f, 0.110f, 0.086f, 1f);
+        private static readonly Color FallbackActive = new Color(0.902f, 0.671f, 0.243f, 1f);
+        private static readonly Color FallbackField = new Color(0.071f, 0.051f, 0.043f, 1f);
+        private static readonly Color FallbackError = new Color(1f, 0.478f, 0.400f);
+        private static readonly Color FallbackWarning = new Color(0.941f, 0.631f, 0.353f);
+        private static readonly Color FallbackPanel = new Color(0.114f, 0.082f, 0.067f, 1f);
 
         private static bool _sampled;
         private static string _sampledFrom;
