@@ -27,7 +27,7 @@ namespace ExampleMod
     /// repository's git tag, so a released dll always reports the tag it was cut from. It is a const
     /// because [BepInPlugin]'s arguments have to be compile-time constants. A hand-written "1.0.0" is
     /// correct on the first release and silently wrong on every release after it - and it is not only
-    /// untidy, because this library's Plugins tab and the launcher's Mods tab both read the version back
+    /// untidy, because this library's Plugins tab and Switchboard's Mods tab both read the version back
     /// out of the dll and show it to the player.
     ///
     /// Use PluginBuildInfo.Version here and NOT PluginBuildInfo.Informational. BepInEx parses this

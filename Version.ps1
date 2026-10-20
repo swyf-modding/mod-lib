@@ -10,14 +10,14 @@
 
     Why this exists at all: the mod version used to be a "1.0.0" literal typed into [BepInPlugin]. It
     was correct on the first release and wrong on every release after it, because nothing connected it
-    to a tag - and it was worse than merely untidy, since the launcher's Mods tab reads that exact
+    to a tag - and it was worse than merely untidy, since Switchboard's Mods tab reads that exact
     string back out of the dll with Cecil and shows it to the player as the mod's version.
 
     Two output fields, because AssemblyVersion and AssemblyFileVersion must be numeric - the CLR
     rejects "1.0.0-beta.1" outright - so a prerelease tag keeps its numeric part there and carries the
     rest in AssemblyInformationalVersion, which is what Explorer displays.
 
-    This is the same logic as the launcher's build.ps1, duplicated rather than shared because the two
+    This is the same logic as Switchboard's build.ps1, duplicated rather than shared because the two
     are separate repositories with no common dependency. Keep them in step.
 #>
 

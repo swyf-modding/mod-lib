@@ -21,7 +21,7 @@ namespace ScamWYF.Modding.Tools
     /// not have open.
     ///
     /// So this runs as part of every build rather than as something a release checklist remembers. It
-    /// reads the built dll with the same Cecil the launcher uses, and exits non-zero on a version the CLR
+    /// reads the built dll with the same Cecil Switchboard uses, and exits non-zero on a version the CLR
     /// constructor will reject.
     ///
     ///     .\tools\test-bepinex-version.ps1 bin\ScamWYF.ModHandler.dll

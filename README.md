@@ -355,7 +355,7 @@ hands the result to `build.ps1 -BuildVersion`.
 Two fallbacks, so a build works outside a checkout: no `git` or no `.git\` warns and stamps `0.0.0`,
 and `-Version` sets it outright for a source archive.
 
-The reason this exists rather than a version literal in each mod: the launcher's Mods tab and this
+The reason this exists rather than a version literal in each mod: Switchboard's Mods tab and this
 library's Plugins tab both read the version back out of `[BepInPlugin]` with Cecil and show it to the
 player. A hardcoded `"1.0.0"` is right on the first release and silently wrong on every one after it.
 
@@ -422,6 +422,6 @@ right to the game's own assemblies, which are not redistributed.
 | Project | What it is |
 |---|---|
 | [Setup](https://github.com/swyf-modding/Setup) | Installs BepInEx, the corlib override, and the vtable patches this game needs |
-| [Launcher](https://github.com/swyf-modding/Launcher) | Installs, launches, and manages mods from outside the game |
+| [Switchboard](https://github.com/swyf-modding/Switchboard) | Installs, launches, and manages mods from outside the game |
 | [Mod-Handler](https://github.com/swyf-modding/Mod-Handler) | The in-game **Plugins** tab — turn mods off without leaving a session |
 | [AI-Backend](https://github.com/swyf-modding/AI-Backend) | Routes the game's AI calls to your own LLM |
