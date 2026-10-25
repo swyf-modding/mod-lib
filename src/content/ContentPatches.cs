@@ -573,6 +573,7 @@ namespace ScamWYF.Modding.Core.Content
                 var appType = AppDefinitionType();
                 if (appType == null) return;
 
+                var added = 0;
                 foreach (var entry in entries)
                 {
                     if (HasId(list, entry.Id)) continue;
@@ -582,6 +583,15 @@ namespace ScamWYF.Modding.Core.Content
                     if (definition == null) continue;
                     NormalizeApp(__instance, definition);
                     list.Add(definition);
+                    added++;
+                }
+
+                // Said out loud because "my app is not on the desktop" otherwise has no line in the
+                // log at either end: the mod registered it, and the merge either took it or did not.
+                if (added > 0)
+                {
+                    ContentRegistry.LibraryLog.Info("Custom apps on this desktop: " + added + " of " +
+                                                    entries.Length + " registered.");
                 }
             }
             catch (Exception)
@@ -932,19 +942,94 @@ namespace ScamWYF.Modding.Core.Content
             }
         }
 
+        /// <summary>
+        /// Turn a spec's JSON into one of the game's own definition objects.
+        /// </summary>
+        /// <remarks>
+        /// Which Newtonsoft method this uses depends on the build, and that is not a detail to be
+        /// clever about: 0.1.91 ships Newtonsoft 13 with managed stripping, which removed
+        /// <c>DeserializeObject(string, Type)</c> - the one overload this used to call. The call
+        /// returned null for every entry, every catalog merge skipped every entry, and custom
+        /// content vanished from the game with nothing in the log to say why.
+        ///
+        /// So: the two-argument overload when it exists, the generic one when it does not, and the
+        /// settings one after that. Whichever is found is remembered, and a build with none of them
+        /// says so once instead of dropping content in silence.
+        /// </remarks>
         private static object JsonDeserialize(string json, Type type)
         {
+            if (type == null || string.IsNullOrEmpty(json)) return null;
+
+            ResolveDeserializer();
+
             try
             {
-                var method = typeof(Newtonsoft.Json.JsonConvert).GetMethod("DeserializeObject",
-                    new Type[] { typeof(string), typeof(Type) });
-                if (method == null) return null;
-                return method.Invoke(null, new object[] { json, type });
-            }
-            catch (Exception)
-            {
+                if (DeserializeByType != null)
+                    return DeserializeByType.Invoke(null, new object[] { json, type });
+
+                if (DeserializeGeneric != null)
+                    return DeserializeGeneric.MakeGenericMethod(type).Invoke(null, new object[] { json });
+
+                if (DeserializeWithSettings != null)
+                    return DeserializeWithSettings.Invoke(null,
+                        new object[] { json, type, null });
+
+                ReportDeserializeProblem("no usable JsonConvert.DeserializeObject overload");
                 return null;
             }
+            catch (Exception ex)
+            {
+                ReportDeserializeProblem(type.Name + ": " + (ex.InnerException ?? ex).Message);
+                return null;
+            }
+        }
+
+        private static MethodInfo DeserializeByType;
+        private static MethodInfo DeserializeGeneric;
+        private static MethodInfo DeserializeWithSettings;
+        private static bool _deserializerResolved;
+        private static readonly HashSet<string> ReportedDeserialize = new HashSet<string>(StringComparer.Ordinal);
+
+        private static void ResolveDeserializer()
+        {
+            if (_deserializerResolved) return;
+            _deserializerResolved = true;
+
+            var convert = typeof(Newtonsoft.Json.JsonConvert);
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.Static;
+
+            DeserializeByType = convert.GetMethod("DeserializeObject", flags, null,
+                new[] { typeof(string), typeof(Type) }, null);
+
+            foreach (var candidate in convert.GetMethods(flags))
+            {
+                if (candidate.Name != "DeserializeObject") continue;
+                if (candidate.IsGenericMethodDefinition &&
+                    candidate.GetParameters().Length == 1 &&
+                    candidate.GetParameters()[0].ParameterType == typeof(string))
+                {
+                    DeserializeGeneric = candidate;
+                }
+            }
+
+            DeserializeWithSettings = convert.GetMethod("DeserializeObject", flags, null,
+                new[] { typeof(string), typeof(Type), typeof(Newtonsoft.Json.JsonSerializerSettings) },
+                null);
+        }
+
+        /// <summary>
+        /// Say why an entry could not be built, once per distinct reason. A catalogue of ten mods
+        /// failing the same way is one line, not ten.
+        /// </summary>
+        private static void ReportDeserializeProblem(string reason)
+        {
+            lock (ReportedDeserialize)
+            {
+                if (ReportedDeserialize.Count >= 8) return;
+                if (!ReportedDeserialize.Add(reason)) return;
+            }
+            ContentRegistry.LibraryLog.Warn("Could not build a game definition from a mod's spec (" +
+                                            reason + "). Custom content of that kind is off.");
         }
 
         private static object GetStaticField(Type type, string name)
