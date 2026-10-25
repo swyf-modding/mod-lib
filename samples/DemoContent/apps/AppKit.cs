@@ -1,5 +1,4 @@
 using System;
-using ScamWYF.Modding.Core.Ui;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -21,6 +20,22 @@ namespace ScamWYF.DemoContent
     /// </remarks>
     internal static class AppKit
     {
+        /// <summary>
+        /// Text inside the game's OS windows, which are light. The library's <c>UiTheme</c> colours
+        /// are read from the game's menu theme, and that theme is dark - which is right for the mod
+        /// menu and wrong for a window on the desktop, where white text on a pale panel is invisible.
+        /// </summary>
+        internal static readonly Color Ink = new Color(0.09f, 0.09f, 0.11f);
+
+        /// <summary>Secondary text: still readable on a pale panel, visibly quieter than <see cref="Ink"/>.</summary>
+        internal static readonly Color InkMuted = new Color(0.34f, 0.34f, 0.38f);
+
+        /// <summary>The face of an unaccented key.</summary>
+        internal static readonly Color KeyFace = new Color(0.87f, 0.88f, 0.90f);
+
+        /// <summary>The face of the key the app is about, dark enough for white text.</summary>
+        internal static readonly Color KeyAccent = new Color(0.10f, 0.35f, 0.72f);
+
         /// <summary>A card on the window's background, drawn with the game's own panel class.</summary>
         internal static VisualElement Card(VisualElement root)
         {
@@ -41,7 +56,7 @@ namespace ScamWYF.DemoContent
         {
             var label = new Label(text ?? "");
             label.style.fontSize = size;
-            label.style.color = muted ? UiTheme.TextMuted : UiTheme.Text;
+            label.style.color = muted ? InkMuted : Ink;
             label.style.whiteSpace = WhiteSpace.Normal;
             if (parent != null) parent.Add(label);
             return label;
@@ -96,8 +111,8 @@ namespace ScamWYF.DemoContent
             button.style.fontSize = 17f;
             button.style.unityFontStyleAndWeight = FontStyle.Bold;
             button.style.unityTextAlign = TextAnchor.MiddleCenter;
-            button.style.backgroundColor = accent ? UiTheme.Accent : UiTheme.Button;
-            button.style.color = accent ? new Color(1f, 1f, 1f) : UiTheme.Text;
+            button.style.backgroundColor = accent ? KeyAccent : KeyFace;
+            button.style.color = accent ? new Color(1f, 1f, 1f) : Ink;
             if (parent != null) parent.Add(button);
             return button;
         }

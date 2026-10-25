@@ -23,8 +23,13 @@ it on every run, so it cannot quietly rot.
 
 The five apps are the point: each is one `OsAppSpec.GameApp` plus one callback, in
 [`apps/`](apps), and they share [`apps/AppKit.cs`](apps/AppKit.cs) - a card using the game's own
-`kolkata-panel` class, text in the game's typography, and keys coloured from the live theme. That is
+`kolkata-panel` class, and ink, muted ink and key faces chosen for the desktop's pale windows. That is
 the whole of what a drawn app needs to look like it belongs in the OS.
+
+One thing to get right, and it is easy to get wrong: **the library's `UiTheme` colours are the mod
+menu's**, read from the game's own dark menu theme. An OS window is light, so white text from `UiTheme`
+disappears on it. The heading the library adds is fine - it carries the game's own
+`kolkata-app-title` class - but anything a mod styles by hand has to pick colours for a pale window.
 
 The two scams are free and unlocked from day one, so they appear in Scamazon without anything else being
 arranged. The game app and both scam apps have desktop orders set in the specs.

@@ -1,5 +1,4 @@
 using System;
-using ScamWYF.Modding.Core.Ui;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -31,7 +30,10 @@ namespace ScamWYF.DemoContent
             field.style.minHeight = 190f;
             field.style.fontSize = 15f;
             field.style.whiteSpace = WhiteSpace.Normal;
-            field.style.color = UiTheme.Text;
+
+            // Black on the OS's pale window, and the same ink the rest of the demo uses.
+            field.style.color = AppKit.Ink;
+            field.style.backgroundColor = new Color(0.95f, 0.95f, 0.96f);
             field.RegisterValueChangedCallback(delegate(ChangeEvent<string> evt)
             {
                 _text = evt.newValue ?? "";
