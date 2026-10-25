@@ -41,7 +41,7 @@ namespace ScamWYF.DemoContent
         internal const string DogApp = "demo-dog-walking";
         internal const string LibraryApp = "demo-library-card";
 
-        private const string BuiltAgainst = "6000.3.10f1";
+        private const string BuiltAgainst = "6000.3.26f1";
 
         private ConfigEntry<int> _startingCredits;
         private ConfigEntry<bool> _notifyOnWin;
