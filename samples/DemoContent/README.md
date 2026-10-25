@@ -11,11 +11,20 @@ it on every run, so it cannot quietly rot.
 
 | Thing | Where it comes from | What it is |
 |---|---|---|
-| **Lucky Sevens** (`demo-lucky-sevens`) | `Plugin.RegisterContent` → `ContentRegistry.RegisterGame` | A desktop app the game has no builder for. Every element in its window comes from `LuckySevens.Draw`. |
+| **Lucky Sevens** (`demo-lucky-sevens`) | `Plugin.AddApp` → `ContentRegistry.RegisterGame` | A slot machine drawn by the mod: reels on a panel, credits/spins/best under it, one accent-coloured spin button. |
+| **Calculator** (`demo-calculator`) | same | A working calculator: 20 keys, chained operators, `+/-`, `%`, and "Cannot divide by zero" instead of infinity. |
+| **Stopwatch** (`demo-stopwatch`) | same | Start/stop/reset, ticking off the element's own scheduler - the demo of an app that keeps drawing after it is built. |
+| **Notebook** (`demo-notebook`) | same | A multiline text field whose text survives a window rebuild, held in the mod rather than the element. |
+| **Magic 8-Ball** (`demo-eight-ball`) | same | The smallest app that does something different every press. |
 | **Dog Walking Scam** (`demo-dog-scam`) | `Scams.DogWalking` → `ContentRegistry.RegisterConversationScam` | A conversation scam: four objectives that check off as you talk, the last one a tag number the caller has to say. |
 | **Library Card** (`demo-library-scam`) | `Scams.LibraryCard` → `ContentRegistry.RegisterFormScam` | A form scam, the bank-login shape: the app collects a card number and submits it to the source the scam type scores. |
 | **Demo content** tab | `ModMenu.AddPage` | Lists what actually registered, plus buttons that open each app and a toast. |
 | **F9** | `Hotkeys.Register` | Puts a message in the game's notification stack. |
+
+The five apps are the point: each is one `OsAppSpec.GameApp` plus one callback, in
+[`apps/`](apps), and they share [`apps/AppKit.cs`](apps/AppKit.cs) - a card using the game's own
+`kolkata-panel` class, text in the game's typography, and keys coloured from the live theme. That is
+the whole of what a drawn app needs to look like it belongs in the OS.
 
 The two scams are free and unlocked from day one, so they appear in Scamazon without anything else being
 arranged. The game app and both scam apps have desktop orders set in the specs.
@@ -55,4 +64,6 @@ rebuild calls the draw callback with an empty tree. `LuckySevens` keeps credits,
 static fields, and `Draw` is a function of them; anything stored in a label is gone after a rebuild.
 
 **The callback is the whole body.** The library gives it a content root inside the app's window, already
-styled and scrolled, with the app's title above it. Build into that element and nothing else.
+styled and scrolled, with the app's title above it. Build into that element and nothing else - and build
+*all* of it, because there is no partial redraw: the calculator, the stopwatch display and the 8-ball's
+answer are all re-created from the app's fields every time.

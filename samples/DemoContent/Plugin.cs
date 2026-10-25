@@ -1,3 +1,4 @@
+using System;
 using BepInEx;
 using BepInEx.Configuration;
 using ScamWYF.Modding.Core;
@@ -38,6 +39,10 @@ namespace ScamWYF.DemoContent
         // scam that is shown in it, and the tab's open buttons. Ids are unique across ALL mods, so a
         // real mod would prefix them with its own name rather than "demo-".
         internal const string SlotsApp = "demo-lucky-sevens";
+        internal const string CalculatorApp = "demo-calculator";
+        internal const string StopwatchApp = "demo-stopwatch";
+        internal const string NotebookApp = "demo-notebook";
+        internal const string EightBallApp = "demo-eight-ball";
         internal const string DogApp = "demo-dog-walking";
         internal const string LibraryApp = "demo-library-card";
 
@@ -89,16 +94,19 @@ namespace ScamWYF.DemoContent
         /// </remarks>
         private void RegisterContent()
         {
-            // 1. An app the game has no builder for. The spec is the same one a normal app uses, and
-            //    the callback is what draws its window body.
-            var slots = OsAppSpec.GameApp(SlotsApp, "Lucky Sevens", "KolkataOS/SVG/slot-machine",
-                "#B8860B", 95);
-            slots.WindowWidth = 520f;
-            slots.WindowHeight = 470f;
-            if (!ContentRegistry.RegisterGame(this, slots, LuckySevens.Draw))
-            {
-                ModLog.LogWarning("The demo game was not registered; see the warning above for why.");
-            }
+            // 1. Apps the game has no builder for. Each spec is the same one a normal app uses, and the
+            //    callback is what draws its window body - one per app, because they have nothing in
+            //    common beyond the shape of a window.
+            AddApp(SlotsApp, "Lucky Sevens", "KolkataOS/SVG/slot-machine", "#B8860B", 95, 560f, 470f,
+                LuckySevens.Draw);
+            AddApp(CalculatorApp, "Calculator", "KolkataOS/SVG/grid", "#2D7FF9", 91, 360f, 500f,
+                Calculator.Draw);
+            AddApp(StopwatchApp, "Stopwatch", "KolkataOS/SVG/record-start", "#C0392B", 92, 380f, 330f,
+                Stopwatch.Draw);
+            AddApp(NotebookApp, "Notebook", "KolkataOS/SVG/notebook", "#7F6A3F", 93, 520f, 430f,
+                Notebook.Draw);
+            AddApp(EightBallApp, "Magic 8-Ball", "KolkataOS/SVG/lightbulb-on", "#5B2C6F", 94, 400f, 380f,
+                EightBall.Draw);
 
             // 2. A conversation scam: the caller value, the product that unlocks it, the app that shows
             //    the checklist and the scam itself, registered together so their ids cannot disagree.
@@ -121,6 +129,24 @@ namespace ScamWYF.DemoContent
         }
 
         /// <summary>
+        /// Register one mod-drawn app. Every argument here is a decision the app's own window makes:
+        /// the icon and accent the OS draws it with, where it sits on the desktop, and how big it
+        /// opens.
+        /// </summary>
+        private void AddApp(string id, string title, string icon, string accent, int desktopOrder,
+            float width, float height, Action<VisualElement> draw)
+        {
+            var spec = OsAppSpec.GameApp(id, title, icon, accent, desktopOrder);
+            spec.WindowWidth = width;
+            spec.WindowHeight = height;
+
+            if (!ContentRegistry.RegisterGame(this, spec, draw))
+            {
+                ModLog.LogWarning("The '" + title + "' app was not registered; the warning above says why.");
+            }
+        }
+
+        /// <summary>
         /// The tab this mod contributes to the shared menu. It is also the honest way to check the demo
         /// from inside the game: what registered, what collided, and whether the computer is up.
         /// </summary>
@@ -131,11 +157,21 @@ namespace ScamWYF.DemoContent
             Widgets.Paragraph(scroll, "A game drawn by this mod, and two scams built from one call each. " +
                                       "Nothing here is released; it exists to exercise the content API.");
 
+            Widgets.Heading(scroll, "Apps");
+            var apps = Widgets.WrapRow(scroll);
+            Widgets.Button(apps, "Lucky Sevens", delegate { Open(SlotsApp); });
+            Widgets.Button(apps, "Calculator", delegate { Open(CalculatorApp); });
+            Widgets.Button(apps, "Stopwatch", delegate { Open(StopwatchApp); });
+            Widgets.Button(apps, "Notebook", delegate { Open(NotebookApp); });
+            Widgets.Button(apps, "Magic 8-Ball", delegate { Open(EightBallApp); });
+
+            Widgets.Heading(scroll, "Scam apps");
+            var scams = Widgets.WrapRow(scroll);
+            Widgets.Button(scams, "Dog walking website", delegate { Open(DogApp); });
+            Widgets.Button(scams, "City library", delegate { Open(LibraryApp); });
+
             var row = Widgets.WrapRow(scroll);
-            Widgets.PrimaryButton(row, "Lucky Sevens", delegate { Open(SlotsApp); });
-            Widgets.Button(row, "Dog walking website", delegate { Open(DogApp); });
-            Widgets.Button(row, "City library", delegate { Open(LibraryApp); });
-            Widgets.Button(row, "Toast the computer", Poke);
+            Widgets.PrimaryButton(row, "Toast the computer", Poke);
 
             Widgets.FieldRow(scroll, "Computer open", ModDesktop.IsOpen ? "yes" : "no");
             Widgets.FieldRow(scroll, "Credits in the machine", LuckySevens.Credits.ToString());
