@@ -229,6 +229,10 @@ ModDesktop.OpenApp(this, "moar-slots");
 Objects the game draws itself (`OsAppSpec.FormScamApp`, `ConversationScamApp`, or your own spec with a
 game contentType) still register with `ContentRegistry.RegisterApp` and need no callback.
 
+A whole mod written this way, with the game, both scam shapes and the tab that proves what registered, is
+[`samples/DemoContent`](samples/DemoContent) - and `./build.ps1 -LibraryOnly -Test` compiles it, so it
+cannot fall behind the API.
+
 ### Testing
 
 ```powershell
@@ -392,6 +396,8 @@ src/
     |-- WindowGeometry.cs  The clamping arithmetic, deliberately dependency-free
     `-- WindowPlacement.cs Saved size and position
 template/Plugin.cs         A working mod to copy
+samples/DemoContent/       A working mod that uses the content API: a game it draws,
+                           two scams, a menu tab and a toast. Compiled by -Test
 Version.ps1                Version stamping, shared with every mod built through this library
 GameDir.ps1                Finding the game install, shared with every mod built through this library
 tools/                     The [BepInPlugin] version check, compiled and run after every build

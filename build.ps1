@@ -200,6 +200,16 @@ function Invoke-Tests {
                               -GameDir $GameDir -CscDll $CscDll -NoCopy -BuildVersion $BuildVersion
     if ($LASTEXITCODE -ne 0) { throw "the API surface check failed to compile" }
 
+    # The sample mod, compiled the same way and thrown away. samples/DemoContent is documentation that
+    # runs, and documentation that no longer compiles is worse than none: this is what makes renaming a
+    # member it uses a build failure here rather than a surprise for whoever copies it.
+    Write-Host "Compiling the sample mod..." -ForegroundColor Cyan
+    & (Join-Path $PSScriptRoot 'build.ps1') -Project ScamWYF.Modding.DemoCheck `
+                              -Sources (Join-Path $PSScriptRoot 'samples/DemoContent') `
+                              -OutDir (Join-Path $OutDir 'democheck') `
+                              -GameDir $GameDir -CscDll $CscDll -NoCopy -BuildVersion $BuildVersion
+    if ($LASTEXITCODE -ne 0) { throw "the sample mod in samples/DemoContent failed to compile" }
+
     # Second: the behaviour tests. These need the .NET SDK rather than just Roslyn, so they are skipped
     # with a warning rather than failing the build on a machine that can still ship a mod.
     $tests = Join-Path $PSScriptRoot 'tests/watcher'
