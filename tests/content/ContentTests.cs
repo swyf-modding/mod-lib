@@ -56,6 +56,36 @@ internal static class ContentTests
         };
     }
 
+    /// <summary>A game app with one field changed, for the rejection cases.</summary>
+    private static OsAppSpec WithGame(Action<OsAppSpec> change)
+    {
+        var spec = OsAppSpec.GameApp("moar-slots", "Slots");
+        change(spec);
+        return spec;
+    }
+
+    private static ConversationScamPlan ValidPlan()
+    {
+        var scam = ValidScam();
+        return ConversationScamPlan.New(scam.AppId, scam.ProductId, scam.Id, scam.Title,
+            scam.Reward, scam.Objectives, 3);
+    }
+
+    private static FormScamPlan ValidFormPlan()
+    {
+        var sentinel = SentinelSpec.Digits("FICTIONAL_MOAR_TAX_ID", "Tax ID", 250,
+            "moar_tax_submit", new[] { 2, 2 }, "-");
+        return FormScamPlan.New("moar-tax-office", "moar-scam-tax", "moar_tax", "Tax Rebate",
+            "moar_tax_submit", sentinel,
+            new[]
+            {
+                new OsFormFieldSpec
+                {
+                    Id = "tax-id", Label = "Tax ID", ItemId = "FICTIONAL_MOAR_TAX_ID", Required = true
+                }
+            }, 3);
+    }
+
     public static int Main()
     {
         // Conversation scams -------------------------------------------------
@@ -189,12 +219,102 @@ internal static class ContentTests
         Check("a tag without FICTIONAL_ is rejected",
             ContentValidation.CheckSentinel(badTag) != null, "accepted");
 
+        // Apps the mod draws --------------------------------------------------
+        var game = OsAppSpec.GameApp("moar-slots", "Slots");
+        Check("a factory game app passes",
+            ContentValidation.CheckGameApp(game) == null,
+            ContentValidation.CheckGameApp(game) ?? "");
+
+        Check("a game app that is neither on the desktop nor pinned is rejected",
+            ContentValidation.CheckGameApp(WithGame(delegate (OsAppSpec spec)
+            {
+                spec.ShowOnDesktop = false;
+            })) != null, "accepted");
+
+        Check("a game app with a game-built contentType is rejected",
+            ContentValidation.CheckGameApp(WithGame(delegate (OsAppSpec spec)
+            {
+                spec.ContentType = "notes";
+            })) != null, "accepted");
+
+        Check("a game app with a negative desktopOrder is rejected",
+            ContentValidation.CheckGameApp(WithGame(delegate (OsAppSpec spec)
+            {
+                spec.DesktopOrder = -1;
+            })) != null, "accepted");
+
+        var gameWithoutId = OsAppSpec.GameApp("", "Slots");
+        Check("a game app without an id is rejected",
+            ContentValidation.CheckGameApp(gameWithoutId) != null, "accepted");
+
+        // Scam plans ----------------------------------------------------------
+        Check("a factory conversation scam plan passes",
+            ContentValidation.CheckConversationScamPlan(ValidPlan()) == null,
+            ContentValidation.CheckConversationScamPlan(ValidPlan()) ?? "");
+
+        var planWrongApp = ValidPlan();
+        planWrongApp.Product.AppId = "some-other-app";
+        Check("a plan whose product unlocks a different app is rejected",
+            ContentValidation.CheckConversationScamPlan(planWrongApp) != null, "accepted");
+
+        var planWrongProduct = ValidPlan();
+        planWrongProduct.Scam.ProductId = "moar-scam-other";
+        Check("a plan whose scam names a different product is rejected",
+            ContentValidation.CheckConversationScamPlan(planWrongProduct) != null, "accepted");
+
+        var planWrongContentType = ValidPlan();
+        planWrongContentType.App.ContentType = "notes";
+        Check("a plan whose app cannot show a conversation scam is rejected",
+            ContentValidation.CheckConversationScamPlan(planWrongContentType) != null, "accepted");
+
+        var planNoApp = ValidPlan();
+        planNoApp.App = null;
+        Check("a plan with no app is rejected",
+            ContentValidation.CheckConversationScamPlan(planNoApp) != null, "accepted");
+
+        var planDuplicateTag = ValidPlan();
+        planDuplicateTag.Sentinels = new[]
+        {
+            SentinelSpec.Digits("FICTIONAL_MOAR_TAX_ID", "Tax ID", 250, "moar_tax_submit", null, null),
+            SentinelSpec.Digits("FICTIONAL_MOAR_TAX_ID", "Tax ID again", 250, "moar_tax_submit", null, null),
+        };
+        Check("a plan registering one caller value twice is rejected",
+            ContentValidation.CheckConversationScamPlan(planDuplicateTag) != null, "accepted");
+
+        Check("a valid form scam plan passes",
+            ContentValidation.CheckFormScamPlan(ValidFormPlan()) == null,
+            ContentValidation.CheckFormScamPlan(ValidFormPlan()) ?? "");
+
+        var formWrongSource = ValidFormPlan();
+        formWrongSource.App.Content.Binding.CompletionSource = "moar_tax_other";
+        Check("a form whose app submits to a different source is rejected",
+            ContentValidation.CheckFormScamPlan(formWrongSource) != null, "accepted");
+
+        var formWrongTag = ValidFormPlan();
+        formWrongTag.Sentinel.Tag = "FICTIONAL_MOAR_OTHER";
+        formWrongTag.ScamType.RelevantSentinels = new[] { "FICTIONAL_MOAR_TAX_ID" };
+        Check("a form whose caller value is not listed by the scam type is rejected",
+            ContentValidation.CheckFormScamPlan(formWrongTag) != null, "accepted");
+
+        var formNoFields = ValidFormPlan();
+        formNoFields.App.Content.Fields = new OsFormFieldSpec[0];
+        Check("a form with no fields is rejected",
+            ContentValidation.CheckFormScamPlan(formNoFields) != null, "accepted");
+
+        var formWrongAppType = ValidFormPlan();
+        formWrongAppType.App.ContentType = "notes";
+        Check("a form whose app is not a form is rejected",
+            ContentValidation.CheckFormScamPlan(formWrongAppType) != null, "accepted");
+
         Check("null specs are rejected, not thrown",
             ContentValidation.CheckConversationScam(null) != null &&
             ContentValidation.CheckScamType(null) != null &&
             ContentValidation.CheckApp(null) != null &&
             ContentValidation.CheckProduct(null) != null &&
-            ContentValidation.CheckSentinel(null) != null, "accepted null");
+            ContentValidation.CheckSentinel(null) != null &&
+            ContentValidation.CheckGameApp(null) != null &&
+            ContentValidation.CheckConversationScamPlan(null) != null &&
+            ContentValidation.CheckFormScamPlan(null) != null, "accepted null");
 
         Console.WriteLine();
         Console.WriteLine(_passed + " passed, " + _failed + " failed.");

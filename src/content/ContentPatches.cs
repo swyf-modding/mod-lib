@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
 using Newtonsoft.Json.Linq;
+using UnityEngine.UIElements;
 
 namespace ScamWYF.Modding.Core.Content
 {
@@ -408,7 +409,150 @@ namespace ScamWYF.Modding.Core.Content
                 ok = false;
             }
 
+            // Apps the mod draws. The game builds every other app itself and leaves the rest to
+            // BuildPlaceholderContent, which is the one point where "no builder" turns into "empty
+            // body" - and the only place a mod's own drawing can take over without fighting one of
+            // the game's builders.
+            var builderType = CachedType("KolkataOsContentBuilder",
+                "Kolkata.UI.KolkataOsContentBuilder");
+            var placeholder = builderType == null
+                ? null
+                : FindMethod(builderType, "BuildPlaceholderContent", false, 1);
+            if (placeholder == null)
+            {
+                owner.ModLog.LogWarning("KolkataOsContentBuilder.BuildPlaceholderContent is gone (" +
+                                        GameBuild.Describe() +
+                                        "). Apps a mod draws load without their window body.");
+            }
+            else if (!PatchCoordinator.TryPatch(owner, placeholder, "draw mod apps",
+                new HarmonyMethod(AccessTools.Method(typeof(ContentPatches), "DrawModApp"))))
+            {
+                ok = false;
+            }
+
             return ok;
+        }
+
+        /// <summary>
+        /// Runs instead of BuildPlaceholderContent for an app a mod draws: builds the mod's body into
+        /// the app's window and skips the placeholder.
+        /// </summary>
+        /// <remarks>
+        /// Returns true - "let the game build the placeholder" - for every app nobody draws, so this
+        /// costs one dictionary-less scan of the registered apps per window built. A callback that
+        /// throws leaves the window untouched and the placeholder in place, because a mod's drawing
+        /// bug should not be an empty app the player cannot close.
+        /// </remarks>
+        public static bool DrawModApp(object app)
+        {
+            if (app == null) return true;
+            var appId = ReadString(GetField(app, "Definition"), "id");
+            var draw = ContentRegistry.FindDraw(appId);
+            if (draw == null) return true;
+
+            var windowContent = GetField(app, "WindowContent") as VisualElement;
+            if (windowContent == null) return true;
+
+            try
+            {
+                var root = AttachContentRoot(app, windowContent, appId);
+                try
+                {
+                    draw(root);
+                }
+                catch (Exception)
+                {
+                    root.RemoveFromHierarchy();
+                    throw;
+                }
+                return false;
+            }
+            catch (Exception ex)
+            {
+                ContentRegistry.LibraryLog.Warn("The mod drawing app '" + appId +
+                                                "' failed, so the game's placeholder body is used: " +
+                                                ex.Message);
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// The content root the game's own builders give an app: a scroll view inside the window, with
+        /// the themed content container and the app's heading in it.
+        /// </summary>
+        private static VisualElement AttachContentRoot(object app, VisualElement windowContent,
+            string appId)
+        {
+            string css = NormalizeCssIdentifier(appId);
+
+            var scroller = windowContent.Q<ScrollView>(className: "kolkata-app-scroll");
+            if (scroller == null)
+            {
+                scroller = new ScrollView(ScrollViewMode.Vertical);
+                scroller.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
+                scroller.verticalScrollerVisibility = ScrollerVisibility.Auto;
+                scroller.AddToClassList("kolkata-app-scroll");
+                scroller.AddToClassList("kolkata-app-scroll--" + css);
+                windowContent.Add(scroller);
+            }
+            else
+            {
+                scroller.Clear();
+            }
+
+            var root = new VisualElement();
+            root.AddToClassList("kolkata-app-content");
+            root.AddToClassList("kolkata-application-typography");
+            root.AddToClassList("kolkata-app-content--" + css);
+            scroller.Add(root);
+
+            var content = GetField(GetField(app, "Definition"), "content");
+            string title = ReadString(content, "title");
+            if (string.IsNullOrEmpty(title)) title = ReadString(GetField(app, "Definition"), "title");
+            if (!string.IsNullOrEmpty(title))
+            {
+                var heading = new Label(title);
+                heading.AddToClassList("kolkata-app-title");
+                root.Add(heading);
+            }
+            string subtitle = ReadString(content, "subtitle");
+            if (!string.IsNullOrEmpty(subtitle))
+            {
+                var under = new Label(subtitle);
+                under.AddToClassList("kolkata-app-subtitle");
+                root.Add(under);
+            }
+
+            root.RegisterCallback<GeometryChangedEvent>(delegate (GeometryChangedEvent evt)
+            {
+                float width = evt.newRect.width;
+                bool resolved = !float.IsNaN(width) && !float.IsInfinity(width) && width > 0f;
+                root.EnableInClassList("kolkata-app-content--compact", resolved && width <= 760f);
+                root.EnableInClassList("kolkata-app-content--narrow", resolved && width <= 500f);
+            });
+
+            return root;
+        }
+
+        private static string NormalizeCssIdentifier(string value)
+        {
+            if (string.IsNullOrEmpty(value) || value.Trim().Length == 0) return "application";
+            return value.Trim().ToLowerInvariant().Replace('_', '-').Replace(' ', '-');
+        }
+
+        private static object GetField(object instance, string name)
+        {
+            if (instance == null) return null;
+            try
+            {
+                var field = instance.GetType().GetField(name,
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                return field != null ? field.GetValue(instance) : null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
         }
 
         /// <summary>Runs before BuildDesktop creates runtimes: appends registered app definitions.</summary>

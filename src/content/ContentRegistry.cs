@@ -36,6 +36,12 @@ namespace ScamWYF.Modding.Core.Content
             public object Spec;
             public string Json;
 
+            /// <summary>
+            /// For an app the mod draws: handed the app's content root inside its window every time
+            /// the game builds or rebuilds that window. Null for every other entry.
+            /// </summary>
+            public System.Action<UnityEngine.UIElements.VisualElement> Draw;
+
             public override string ToString()
             {
                 return Kind + " '" + Id + "' by " + OwnerName + " [" + OwnerId + "]";
@@ -133,8 +139,33 @@ namespace ScamWYF.Modding.Core.Content
             return true;
         }
 
-        /// <summary>Register an OS app. Scam apps should use the OsAppSpec factories.</summary>
+        /// <summary>
+        /// Register an OS app. Scam apps should use the OsAppSpec factories; an app whose window the
+        /// mod draws itself uses the overload that takes a callback.
+        /// </summary>
         public static bool RegisterApp(ScamMod owner, OsAppSpec spec)
+        {
+            return RegisterApp(owner, spec, null);
+        }
+
+        /// <summary>
+        /// Register an OS app whose window body is drawn by the mod, for content the game has no
+        /// builder for: a game, a calculator, a shop of your own.
+        /// </summary>
+        /// <remarks>
+        /// The callback runs on the main thread every time the game builds the app's window - first
+        /// open, a rebuild after an in-game event, a desktop rebuild - with a fresh content root
+        /// inside it. Build into that element and nothing else: the previous contents are gone by
+        /// the time it is called, so anything kept across rebuilds belongs in the mod, not in the
+        /// tree. A callback that throws is logged and the app falls back to the game's placeholder
+        /// body rather than leaving a half-built window.
+        ///
+        /// The spec must use <see cref="OsAppSpec.GameApp"/>, whose contentType is
+        /// <see cref="OsAppSpec.ModContentType"/>: the game builds its own content types itself, and
+        /// a callback attached to one of those would fight the game's builder.
+        /// </remarks>
+        public static bool RegisterApp(ScamMod owner, OsAppSpec spec,
+            System.Action<UnityEngine.UIElements.VisualElement> draw)
         {
             if (owner == null) throw new ArgumentNullException("owner");
             if (spec == null)
@@ -143,21 +174,55 @@ namespace ScamWYF.Modding.Core.Content
                 return false;
             }
 
-            var problem = ContentValidation.CheckApp(spec);
+            if (draw == null && string.Equals(spec.ContentType, OsAppSpec.ModContentType,
+                    StringComparison.Ordinal))
+            {
+                Reject(owner, "app", spec.Id, "contentType '" + OsAppSpec.ModContentType +
+                                             "' means the mod draws this window, but no draw " +
+                                             "callback was given. Use RegisterGame, or a " +
+                                             "contentType the game builds itself.");
+                return false;
+            }
+
+            var problem = draw != null
+                ? ContentValidation.CheckGameApp(spec)
+                : ContentValidation.CheckApp(spec);
             if (problem != null)
             {
-                Reject(owner, "app", spec.Id, problem);
+                Reject(owner, draw != null ? "game" : "app", spec.Id, problem);
                 return false;
             }
 
             lock (Apps)
             {
                 if (!Claim(Apps, owner, "app", spec.Id)) return false;
-                Apps.Add(NewEntry(owner, "app", spec.Id, spec, null));
+                var entry = NewEntry(owner, "app", spec.Id, spec, null);
+                entry.Draw = draw;
+                Apps.Add(entry);
             }
 
-            AfterRegistered(owner, "app '" + spec.Id + "'");
+            AfterRegistered(owner, draw != null
+                ? "app '" + spec.Id + "' drawn by the mod"
+                : "app '" + spec.Id + "'");
             return true;
+        }
+
+        /// <summary>
+        /// Register a desktop app whose window the mod draws: a game or anything else the game has
+        /// no builder for. Same as the draw-taking <see cref="RegisterApp"/> overload, named for
+        /// what such a mod is usually adding.
+        /// </summary>
+        public static bool RegisterGame(ScamMod owner, OsAppSpec spec,
+            System.Action<UnityEngine.UIElements.VisualElement> draw)
+        {
+            if (draw == null)
+            {
+                if (owner != null && spec != null)
+                    Reject(owner, "game", spec.Id, "no draw callback, so the window would be empty.");
+                return false;
+            }
+
+            return RegisterApp(owner, spec, draw);
         }
 
         /// <summary>
@@ -272,6 +337,110 @@ namespace ScamWYF.Modding.Core.Content
             return true;
         }
 
+        /// <summary>
+        /// Register a whole conversation scam from a plan: the caller values it scores, the product
+        /// that unlocks it, the app that shows it and the scam itself.
+        /// </summary>
+        /// <remarks>
+        /// All of it or none of it. The plan is checked as a whole first - every part against the
+        /// game's rules, and the ids and completion sources against each other - so the usual
+        /// mistake of four separate registrations (a scam pointing at an app nobody registered) is
+        /// one rejection with the reason, before anything reaches the game. A part that still fails
+        /// to register takes the parts already added by this call back out with it.
+        /// </remarks>
+        public static bool RegisterConversationScam(ScamMod owner, ConversationScamPlan plan)
+        {
+            if (owner == null) throw new ArgumentNullException("owner");
+            if (plan == null)
+            {
+                owner.ModLog.LogWarning("Ignoring a null conversation scam plan from " +
+                                        owner.DisplayName + ".");
+                return false;
+            }
+
+            var problem = ContentValidation.CheckConversationScamPlan(plan);
+            if (problem != null)
+            {
+                Reject(owner, "conversation scam plan", plan.Scam != null ? plan.Scam.Id : null,
+                    problem);
+                return false;
+            }
+
+            var added = new List<Added>();
+            try
+            {
+                if (plan.Sentinels != null)
+                {
+                    foreach (var sentinel in plan.Sentinels)
+                    {
+                        if (!RegisterSentinel(owner, sentinel)) return RollBack(added, owner.ModId);
+                        added.Add(new Added(Sentinels, sentinel.Tag));
+                    }
+                }
+                if (!RegisterProduct(owner, plan.Product)) return RollBack(added, owner.ModId);
+                added.Add(new Added(Products, plan.Product.Id));
+                if (!RegisterApp(owner, plan.App)) return RollBack(added, owner.ModId);
+                added.Add(new Added(Apps, plan.App.Id));
+                if (!RegisterConversationScam(owner, plan.Scam)) return RollBack(added, owner.ModId);
+            }
+            catch (Exception ex)
+            {
+                owner.ModLog.LogWarning("Could not register conversation scam plan '" + plan.Scam.Id +
+                                        "': " + ex.Message);
+                return RollBack(added, owner.ModId);
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Register a whole form scam from a plan: the caller value, the product, the app that
+        /// collects it and the scam type that points the caller script at all of them. All of it or
+        /// none of it, for the same reasons as <see cref="RegisterConversationScam(ScamMod,
+        /// ConversationScamPlan)"/>.
+        /// </summary>
+        public static bool RegisterFormScam(ScamMod owner, FormScamPlan plan)
+        {
+            if (owner == null) throw new ArgumentNullException("owner");
+            if (plan == null)
+            {
+                owner.ModLog.LogWarning("Ignoring a null form scam plan from " + owner.DisplayName +
+                                        ".");
+                return false;
+            }
+
+            var problem = ContentValidation.CheckFormScamPlan(plan);
+            if (problem != null)
+            {
+                Reject(owner, "form scam plan", plan.ScamType != null ? plan.ScamType.Id : null,
+                    problem);
+                return false;
+            }
+
+            var added = new List<Added>();
+            try
+            {
+                if (plan.Sentinel != null)
+                {
+                    if (!RegisterSentinel(owner, plan.Sentinel)) return RollBack(added, owner.ModId);
+                    added.Add(new Added(Sentinels, plan.Sentinel.Tag));
+                }
+                if (!RegisterProduct(owner, plan.Product)) return RollBack(added, owner.ModId);
+                added.Add(new Added(Products, plan.Product.Id));
+                if (!RegisterApp(owner, plan.App)) return RollBack(added, owner.ModId);
+                added.Add(new Added(Apps, plan.App.Id));
+                if (!RegisterScamType(owner, plan.ScamType)) return RollBack(added, owner.ModId);
+            }
+            catch (Exception ex)
+            {
+                owner.ModLog.LogWarning("Could not register form scam plan '" + plan.ScamType.Id +
+                                        "': " + ex.Message);
+                return RollBack(added, owner.ModId);
+            }
+
+            return true;
+        }
+
         /// <summary>One mod's entries, for its own menu page.</summary>
         public static Entry[] ForOwner(string ownerId)
         {
@@ -316,6 +485,58 @@ namespace ScamWYF.Modding.Core.Content
         }
 
         // ---------------------------------------------------------------- internals
+
+        /// <summary>Something one registration call added, so a later failure can take it back out.</summary>
+        private struct Added
+        {
+            public readonly List<Entry> Entries;
+            public readonly string Id;
+
+            public Added(List<Entry> entries, string id)
+            {
+                Entries = entries;
+                Id = id;
+            }
+        }
+
+        /// <summary>Undo a bundle that failed part way through. False, for the caller's return.</summary>
+        private static bool RollBack(List<Added> added, string ownerId)
+        {
+            for (int i = added.Count - 1; i >= 0; i--)
+            {
+                var list = added[i].Entries;
+                var id = added[i].Id;
+                lock (list)
+                {
+                    list.RemoveAll(delegate (Entry entry)
+                    {
+                        return string.Equals(entry.Id, id, StringComparison.Ordinal) &&
+                               string.Equals(entry.OwnerId, ownerId, StringComparison.Ordinal);
+                    });
+                }
+            }
+            added.Clear();
+            return false;
+        }
+
+        /// <summary>
+        /// The draw callback registered for an app id, or null. Used by the runtime patch that draws
+        /// mod apps into the game's own window.
+        /// </summary>
+        internal static System.Action<UnityEngine.UIElements.VisualElement> FindDraw(string appId)
+        {
+            if (string.IsNullOrEmpty(appId)) return null;
+            lock (Apps)
+            {
+                foreach (var entry in Apps)
+                {
+                    if (entry.Draw == null) continue;
+                    if (!string.Equals(entry.Id, appId, StringComparison.OrdinalIgnoreCase)) continue;
+                    return entry.Draw;
+                }
+            }
+            return null;
+        }
 
         private static Entry NewEntry(ScamMod owner, string kind, string id, object spec, string json)
         {
@@ -383,17 +604,27 @@ namespace ScamWYF.Modding.Core.Content
             return before - entries.Count;
         }
 
-        private static class LibraryLog
+        internal static class LibraryLog
         {
             internal static void Info(string message)
             {
+                Write(BepInEx.Logging.LogLevel.Info, message);
+            }
+
+            internal static void Warn(string message)
+            {
+                Write(BepInEx.Logging.LogLevel.Warning, message);
+            }
+
+            private static void Write(BepInEx.Logging.LogLevel level, string message)
+            {
                 try
                 {
-                    BepInEx.Logging.Logger.CreateLogSource("ScamWYF.Modding").LogInfo(message);
+                    BepInEx.Logging.Logger.CreateLogSource("ScamWYF.Modding").Log(level, message);
                 }
                 catch (Exception)
                 {
-                    // Logging must never break unloading.
+                    // Logging must never break content handling.
                 }
             }
         }

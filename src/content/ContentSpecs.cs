@@ -194,6 +194,55 @@ namespace ScamWYF.Modding.Core.Content
         }
 
         /// <summary>
+        /// The contentType of an app the library draws on the mod's behalf. The game's own content
+        /// types ("form", "notes", "browser"...) are built by its builders and must not be used for
+        /// an app that carries a draw callback.
+        /// </summary>
+        public const string ModContentType = "modApp";
+
+        /// <summary>
+        /// A desktop app whose window is drawn by the mod: a game, a calculator, anything the game
+        /// itself has no builder for. Register it with <see cref="ContentRegistry.RegisterGame"/>, or
+        /// with the draw-taking <c>ContentRegistry.RegisterApp</c> overload, and the callback is
+        /// handed a content root inside the app's window every time the game builds or rebuilds it.
+        /// </summary>
+        /// <remarks>
+        /// The app is unlocked from day one and sits on the desktop, because the usual reason a mod
+        /// adds a game is that the player should be able to play it. Change <c>Access</c> afterwards
+        /// for a store-gated one, or <c>DesktopOrder</c> to place it.
+        /// </remarks>
+        public static OsAppSpec GameApp(string appId, string title)
+        {
+            return GameApp(appId, title, "KolkataOS/SVG/slot-machine", "#107C10", 90);
+        }
+
+        public static OsAppSpec GameApp(string appId, string title, string iconResource,
+            string accentColor, int desktopOrder)
+        {
+            var spec = new OsAppSpec();
+            spec.Id = appId;
+            spec.Title = title;
+            spec.IconResource = string.IsNullOrEmpty(iconResource)
+                ? "KolkataOS/SVG/slot-machine"
+                : iconResource;
+            spec.ContentType = ModContentType;
+            spec.ShowOnDesktop = true;
+            spec.DesktopOrder = desktopOrder;
+            spec.WindowLeft = 320f;
+            spec.WindowTop = 110f;
+            spec.WindowWidth = 720f;
+            spec.WindowHeight = 520f;
+            spec.AccentColor = string.IsNullOrEmpty(accentColor) ? "#107C10" : accentColor;
+            spec.InitialState = "closed";
+            spec.Access = new OsAppAccessSpec();
+            spec.Access.Mode = "default";
+            spec.Access.UnlockDay = 1;
+            spec.Content = new OsAppContentSpec();
+            spec.Content.Title = title;
+            return spec;
+        }
+
+        /// <summary>
         /// A conversation scam app: shows the objective checklist for the given scam. The scam's
         /// appId must equal this app's id.
         /// </summary>
@@ -332,6 +381,121 @@ namespace ScamWYF.Modding.Core.Content
             spec.GeneratorSeparator = separator != null ? separator : "-";
             spec.SpokenFormat = "digit_groups";
             return spec;
+        }
+    }
+
+    /// <summary>
+    /// A whole conversation scam in one object: the product that unlocks it, the app that shows it
+    /// and the objectives that make it up.
+    /// </summary>
+    /// <remarks>
+    /// Registering the parts one at a time is four calls that share three ids and two completion
+    /// sources, and every one of those agreements is a place to get it wrong: a scam whose appId
+    /// names an app nobody registered has no window, and a product whose appId names a different app
+    /// sells a scam that cannot be played. <see cref="ContentRegistry.RegisterConversationScam"/>
+    /// takes the plan, checks the agreements and registers the parts together, or none of them.
+    ///
+    /// Everything is a plain field, so <see cref="New"/> gives a working starting point and the
+    /// fields can be overwritten afterwards.
+    /// </remarks>
+    public sealed class ConversationScamPlan
+    {
+        public ConversationScamSpec Scam;
+        public OsAppSpec App;
+        public StoreProductSpec Product;
+
+        /// <summary>Caller values the objectives score. Optional, but a new tag must go here.</summary>
+        public SentinelSpec[] Sentinels;
+
+        /// <summary>
+        /// A free scam, unlocked from the given day, with the app and the store entry built from the
+        /// same ids so they already agree.
+        /// </summary>
+        public static ConversationScamPlan New(string appId, string productId, string scamId,
+            string title, int reward, ScamObjectiveSpec[] objectives, int unlockDay)
+        {
+            return New(appId, productId, scamId, title, reward, objectives, unlockDay,
+                null, null, null, 40);
+        }
+
+        public static ConversationScamPlan New(string appId, string productId, string scamId,
+            string title, int reward, ScamObjectiveSpec[] objectives, int unlockDay,
+            string subtitle, string iconResource, string accentColor, int desktopOrder)
+        {
+            var plan = new ConversationScamPlan();
+            plan.Scam = new ConversationScamSpec();
+            plan.Scam.Id = scamId;
+            plan.Scam.ProductId = productId;
+            plan.Scam.AppId = appId;
+            plan.Scam.Title = title;
+            plan.Scam.Reward = reward;
+            plan.Scam.Objectives = objectives;
+            plan.Scam.EndCallOnCompletion = false;
+
+            plan.App = OsAppSpec.ConversationScamApp(appId, title, productId, subtitle,
+                iconResource, accentColor, desktopOrder);
+            plan.Product = StoreProductSpec.FreeScam(productId, appId, scamId, title,
+                subtitle != null ? subtitle : title, unlockDay);
+            return plan;
+        }
+    }
+
+    /// <summary>
+    /// A whole form scam in one object: the app that collects the values, the store entry that
+    /// unlocks it, the caller value the victim reads out, and the scam type that points the caller
+    /// script at all three.
+    /// </summary>
+    /// <remarks>
+    /// This is the bank-login / gift-card shape. The three objects have to agree on the completion
+    /// source and on the sentinel tag, or the app submits values nothing scores and the caller never
+    /// says the tag the form verifies. See <see cref="ConversationScamPlan"/> for why that is one
+    /// call rather than four.
+    /// </remarks>
+    public sealed class FormScamPlan
+    {
+        public ScamTypeSpec ScamType;
+        public OsAppSpec App;
+        public StoreProductSpec Product;
+        public SentinelSpec Sentinel;
+
+        /// <summary>
+        /// A free form scam with the app, the store entry, the caller value and the scam type built
+        /// from one completion source and one tag. The caller prompt and the opening line are
+        /// written from the title and the sentinel label; overwrite them for a real scam.
+        /// </summary>
+        public static FormScamPlan New(string appId, string productId, string scamTypeId,
+            string title, string completionSource, SentinelSpec sentinel,
+            OsFormFieldSpec[] fields, int unlockDay)
+        {
+            return New(appId, productId, scamTypeId, title, completionSource, sentinel, fields,
+                unlockDay, null, null, null, 40);
+        }
+
+        public static FormScamPlan New(string appId, string productId, string scamTypeId,
+            string title, string completionSource, SentinelSpec sentinel,
+            OsFormFieldSpec[] fields, int unlockDay, string subtitle, string iconResource,
+            string accentColor, int desktopOrder)
+        {
+            var plan = new FormScamPlan();
+            plan.Sentinel = sentinel;
+            plan.App = OsAppSpec.FormScamApp(appId, title, productId, completionSource, "Submit",
+                fields, subtitle, iconResource, accentColor, desktopOrder);
+            plan.Product = StoreProductSpec.FreeScam(productId, appId, scamTypeId, title,
+                subtitle != null ? subtitle : title, unlockDay);
+
+            plan.ScamType = new ScamTypeSpec();
+            plan.ScamType.Id = scamTypeId;
+            plan.ScamType.DisplayName = title;
+            plan.ScamType.IconName = "shopping-bag";
+            plan.ScamType.AppId = appId;
+            plan.ScamType.DisplayOrder = 100;
+            plan.ScamType.AppCompletionSource = completionSource;
+            plan.ScamType.RelevantSentinels = sentinel != null ? new[] { sentinel.Tag } : new string[0];
+            plan.ScamType.CallerPrompt = sentinel != null
+                ? "Read back the " + sentinel.Label + " as [[" + sentinel.Tag + "]] if asked."
+                : null;
+            plan.ScamType.TestOpeningPlayerLine = "I'm calling about your " + title + ".";
+            return plan;
         }
     }
 }

@@ -183,6 +183,52 @@ ModMenu.AddPage(this, "Status", page =>
 The important part is what is *not* there: no `Awake`, no `Update`, no `OnGUI`, no window. `ScamMod`
 seals the Unity callbacks and handles them once for every mod, so two mods cannot fight over them.
 
+Putting things on the in-game computer - a game of your own, and a scam in one call:
+
+```csharp
+using UnityEngine.UIElements;
+
+protected override void OnModLoad()
+{
+    // A desktop app the game has no builder for. The callback draws its window body, and runs again
+    // whenever the game rebuilds that window, so it must be able to build from scratch each time.
+    var slots = OsAppSpec.GameApp("moar-slots", "Lucky Sevens");
+    ContentRegistry.RegisterGame(this, slots, DrawSlots);
+
+    // A whole conversation scam: caller value, product, app and the scam, with the ids and the
+    // completion source checked against each other before any of them registers.
+    var plan = ConversationScamPlan.New("moar-jury", "moar-scam-jury", "moar-jury-duty",
+        "Jury Duty", 475,
+        new[]
+        {
+            new ScamObjectiveSpec { Id = "summons", Text = "Acknowledge the summons." },
+            new ScamObjectiveSpec
+            {
+                Id = "confirm", Text = "Confirm the date.", Final = true,
+                Prerequisites = new[] { "summons" },
+            },
+        }, unlockDay: 3);
+    ContentRegistry.RegisterConversationScam(this, plan);
+}
+
+private void DrawSlots(VisualElement root)
+{
+    // The root is the app's content area, inside the game's own scroll view. Build the whole body.
+    var balance = Widgets.Label(root, "Balance: 0", false);
+    Widgets.PrimaryButton(root, "Spin", delegate
+    {
+        balance.text = "Balance: " + UnityEngine.Random.Range(1, 100);
+    });
+}
+
+// Elsewhere, on the live desktop: poke it.
+ModDesktop.Notify(this, "Someone is watching the office.");
+ModDesktop.OpenApp(this, "moar-slots");
+```
+
+Objects the game draws itself (`OsAppSpec.FormScamApp`, `ConversationScamApp`, or your own spec with a
+game contentType) still register with `ContentRegistry.RegisterApp` and need no callback.
+
 ### Testing
 
 ```powershell
@@ -200,6 +246,7 @@ seals the Unity callbacks and handles them once for every mod, so two mods canno
    |---|---|
    | [`tests/watcher`](tests/watcher) | config polling, waiting for a write to settle, surviving a file that does not parse |
    | [`tests/window`](tests/window) | window size and position clamping: minimums, screen limits, idempotence |
+   | [`tests/content`](tests/content) | the catalog rules: objectives, ids, completion sources, scam plans, apps a mod draws |
 
 The behaviour tests need the .NET SDK and are skipped with a warning if `dotnet` is not on `PATH`. They
 use nothing but the BCL, so they run on Linux too — `pwsh ./build.ps1 -LibraryOnly -Test` — which is what
@@ -279,6 +326,26 @@ registry. Entries are validated against the game's own catalog rules and merged 
 so custom content is listed, sold, prompted and paid out like the game's own. Duplicate ids across mods
 are rejected with both owners named rather than overwriting.
 
+Three shapes worth naming, because they are what adding to the computer usually means:
+
+- **A game, or any app the game has no builder for.** `OsAppSpec.GameApp` gives an app on the desktop,
+  and `ContentRegistry.RegisterGame` takes the callback that draws its window body. The callback is handed
+  a content root inside the app's own window - the same scroll view, typography and heading the game's
+  own apps get - every time the game builds or rebuilds it. Draw into it with plain UI Toolkit.
+- **A whole scam in one call.** `ConversationScamPlan` and `FormScamPlan` hold the caller values, the
+  store product, the app and the scam or scam type. Registering the four parts separately means three ids
+  and a completion source have to agree in four places; the plan checks them against each other, and
+  registers all of it or none of it with the reason in the log.
+- **Store entries on their own.** A product that Scamazon sells, which is also what gates an app whose
+  access mode is `catalog`.
+
+### `ModDesktop` — the computer that is on screen
+
+`ModDesktop.Notify` puts a message in the game's own notification stack, `OpenApp` opens an app by id as
+though the player had clicked it, and `IsAppOpen` and `IsOpen` say what is running. Each returns false
+when the computer is not up rather than throwing, so a mod can ask every frame or only when it has
+something to say.
+
 ### `ModSettings` — range-checked config reads
 
 These `.cfg` files get hand-edited, so a value out of range is clamped and reported rather than passed
@@ -303,14 +370,17 @@ src/
 |-- Hotkeys.cs             One keyboard poller for all mods
 |-- PatchCoordinator.cs    Harmony, with collisions reported
 |-- GameBuild.cs           What game and Unity build is this
+|-- ModDesktop.cs          Toasts, opening apps, and what the live computer has open
 |-- config/
 |   |-- ConfigWatcher.cs   Config hot reload
 |   `-- ConfigEditor.cs    Settings form generated from a .cfg
 |-- content/
-|   |-- ContentSpecs.cs      Scam, app, product and sentinel shapes mods register
+|   |-- ContentSpecs.cs      Scam, app, product and sentinel shapes mods register, including
+|   |                        apps the mod draws and whole-scam plans
 |   |-- ContentValidation.cs Catalog rules, dependency-free and covered by tests
 |   |-- ContentRegistry.cs   Multi-mod registration with duplicate ids rejected
-|   `-- ContentPatches.cs    Merges registrations into the game's own catalogs
+|   `-- ContentPatches.cs    Merges registrations into the game's own catalogs, and draws the
+|                            windows of apps a mod supplies
 `-- ui/
     |-- UiPanel.cs         The shared UIDocument
     |-- UiTheme.cs         Colours read from the game's live theme

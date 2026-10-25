@@ -265,5 +265,147 @@ namespace ScamWYF.Modding.Core.Content
                 return "sentinel '" + spec.Tag + "' has no appCompletionSource.";
             return null;
         }
+
+        /// <summary>
+        /// The rules for an app the mod draws itself: the ordinary app rules, plus the contentType
+        /// the library intercepts and a way for the app to appear at all.
+        /// </summary>
+        public static string CheckGameApp(OsAppSpec spec)
+        {
+            var bad = CheckApp(spec);
+            if (bad != null) return bad;
+            if (!string.Equals(spec.ContentType, OsAppSpec.ModContentType, StringComparison.Ordinal))
+                return "app '" + spec.Id + "' carries a draw callback but its contentType is '" +
+                       spec.ContentType + "', which the game builds itself. Use OsAppSpec.GameApp, " +
+                       "whose contentType is '" + OsAppSpec.ModContentType + "'.";
+            if (!spec.ShowOnDesktop && !spec.Pinned)
+                return "app '" + spec.Id + "' is neither on the desktop nor pinned to the taskbar, " +
+                       "so nothing would ever draw it.";
+            if (spec.DesktopOrder < 0)
+                return "app '" + spec.Id + "' has a negative desktopOrder.";
+            return null;
+        }
+
+        /// <summary>
+        /// The rules a <see cref="ConversationScamPlan"/> must follow: every part valid on its own,
+        /// and the three ids and the completion source pointing at each other.
+        /// </summary>
+        public static string CheckConversationScamPlan(ConversationScamPlan plan)
+        {
+            if (plan == null) return "conversation scam plan is null.";
+            if (plan.Scam == null) return "conversation scam plan has no Scam.";
+            var bad = CheckConversationScam(plan.Scam);
+            if (bad != null) return bad;
+            if (plan.App == null)
+                return "conversation scam '" + plan.Scam.Id + "' has no App to show it.";
+            if (plan.Product == null)
+                return "conversation scam '" + plan.Scam.Id + "' has no Product to unlock it.";
+            bad = CheckApp(plan.App);
+            if (bad != null) return bad;
+            bad = CheckProduct(plan.Product);
+            if (bad != null) return bad;
+
+            if (!string.Equals(plan.App.Id, plan.Scam.AppId, StringComparison.Ordinal))
+                return "conversation scam '" + plan.Scam.Id + "' names app '" + plan.Scam.AppId +
+                       "' but the plan registers app '" + plan.App.Id + "'.";
+            if (!string.Equals(plan.Product.Id, plan.Scam.ProductId, StringComparison.Ordinal))
+                return "conversation scam '" + plan.Scam.Id + "' names product '" +
+                       plan.Scam.ProductId + "' but the plan registers product '" +
+                       plan.Product.Id + "'.";
+            if (!string.Equals(plan.Product.AppId, plan.App.Id, StringComparison.Ordinal))
+                return "product '" + plan.Product.Id + "' unlocks app '" + plan.Product.AppId +
+                       "' but the plan registers app '" + plan.App.Id + "'.";
+            if (plan.Product.ScamId != null &&
+                !string.Equals(plan.Product.ScamId, plan.Scam.Id, StringComparison.Ordinal))
+                return "product '" + plan.Product.Id + "' sells scam '" + plan.Product.ScamId +
+                       "' but the plan registers scam '" + plan.Scam.Id + "'.";
+            if (!string.Equals(plan.App.ContentType, "conversationScam", StringComparison.Ordinal))
+                return "app '" + plan.App.Id + "' has contentType '" + plan.App.ContentType +
+                       "', so it cannot show a conversation scam. Use OsAppSpec.ConversationScamApp.";
+
+            return CheckTagList(plan.Sentinels, "conversation scam '" + plan.Scam.Id + "'");
+        }
+
+        /// <summary>
+        /// The rules a <see cref="FormScamPlan"/> must follow: every part valid on its own, and the
+        /// completion source plus the sentinel tag agreeing across the app, the scam type and the
+        /// caller value. A mismatch here is a form that submits values nothing scores.
+        /// </summary>
+        public static string CheckFormScamPlan(FormScamPlan plan)
+        {
+            if (plan == null) return "form scam plan is null.";
+            if (plan.ScamType == null) return "form scam plan has no ScamType.";
+            var bad = CheckScamType(plan.ScamType);
+            if (bad != null) return bad;
+            if (plan.App == null)
+                return "scam type '" + plan.ScamType.Id + "' has no App to collect the values.";
+            if (plan.Product == null)
+                return "scam type '" + plan.ScamType.Id + "' has no Product to unlock it.";
+            bad = CheckApp(plan.App);
+            if (bad != null) return bad;
+            bad = CheckProduct(plan.Product);
+            if (bad != null) return bad;
+
+            if (!string.Equals(plan.App.Id, plan.ScamType.AppId, StringComparison.Ordinal))
+                return "scam type '" + plan.ScamType.Id + "' names app '" + plan.ScamType.AppId +
+                       "' but the plan registers app '" + plan.App.Id + "'.";
+            if (!string.Equals(plan.Product.AppId, plan.App.Id, StringComparison.Ordinal))
+                return "product '" + plan.Product.Id + "' unlocks app '" + plan.Product.AppId +
+                       "' but the plan registers app '" + plan.App.Id + "'.";
+            if (plan.Product.ScamId != null &&
+                !string.Equals(plan.Product.ScamId, plan.ScamType.Id, StringComparison.Ordinal))
+                return "product '" + plan.Product.Id + "' sells scam type '" + plan.Product.ScamId +
+                       "' but the plan registers scam type '" + plan.ScamType.Id + "'.";
+            if (!string.Equals(plan.App.ContentType, "form", StringComparison.Ordinal))
+                return "app '" + plan.App.Id + "' has contentType '" + plan.App.ContentType +
+                       "', so it cannot collect form values. Use OsAppSpec.FormScamApp.";
+            if (plan.App.Content == null || plan.App.Content.Binding == null ||
+                string.IsNullOrEmpty(plan.App.Content.Binding.CompletionSource))
+                return "app '" + plan.App.Id + "' has no completionSource, so nothing it submits is scored.";
+            if (!string.Equals(plan.App.Content.Binding.CompletionSource,
+                    plan.ScamType.AppCompletionSource, StringComparison.Ordinal))
+                return "app '" + plan.App.Id + "' submits '" +
+                       plan.App.Content.Binding.CompletionSource + "' but scam type '" +
+                       plan.ScamType.Id + "' scores '" + plan.ScamType.AppCompletionSource + "'.";
+            if (plan.App.Content.Fields == null || plan.App.Content.Fields.Length == 0)
+                return "app '" + plan.App.Id + "' has no fields, so the caller's values cannot be entered.";
+
+            if (plan.Sentinel != null)
+            {
+                bad = CheckSentinel(plan.Sentinel);
+                if (bad != null) return bad;
+                if (!string.Equals(plan.Sentinel.AppCompletionSource,
+                        plan.ScamType.AppCompletionSource, StringComparison.Ordinal))
+                    return "sentinel '" + plan.Sentinel.Tag + "' is collected as '" +
+                           plan.Sentinel.AppCompletionSource + "' but scam type '" +
+                           plan.ScamType.Id + "' scores '" + plan.ScamType.AppCompletionSource + "'.";
+                bool listed = false;
+                foreach (var tag in plan.ScamType.RelevantSentinels)
+                {
+                    if (string.Equals(tag, plan.Sentinel.Tag, StringComparison.Ordinal)) listed = true;
+                }
+                if (!listed)
+                    return "sentinel '" + plan.Sentinel.Tag + "' is not listed in scam type '" +
+                           plan.ScamType.Id + "' relevantSentinels.";
+            }
+
+            return null;
+        }
+
+        /// <summary>Each sentinel valid, and no tag claimed twice.</summary>
+        private static string CheckTagList(SentinelSpec[] sentinels, string what)
+        {
+            if (sentinels == null) return null;
+            var tags = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (var sentinel in sentinels)
+            {
+                var bad = CheckSentinel(sentinel);
+                if (bad != null) return what + ": " + bad;
+                if (tags.ContainsKey(sentinel.Tag))
+                    return what + " registers caller value '" + sentinel.Tag + "' twice.";
+                tags[sentinel.Tag] = true;
+            }
+            return null;
+        }
     }
 }

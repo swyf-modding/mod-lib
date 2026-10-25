@@ -250,6 +250,67 @@ namespace ScamWYF.Modding.Core.Tests
             ContentRegistry.UnregisterOwner(mod.ModId);
         }
 
+        // ---- The in-game computer: games, whole scams, and what is on screen ------
+
+        internal static void ComputerSurface(ScamMod mod)
+        {
+            // A game: an app spec the game has no builder for, plus the callback that draws its
+            // window body. The callback gets the app's content root every time the window is built.
+            var game = OsAppSpec.GameApp("moar-slots", "Slots");
+            var gameProblem = ContentValidation.CheckGameApp(game);
+            var gameOk = ContentRegistry.RegisterGame(mod, game, DrawGame);
+            var drawnAppOk = ContentRegistry.RegisterApp(mod, game, DrawGame);
+
+            // A whole conversation scam in one call: caller values, product, app and the scam, with
+            // the ids and completion sources checked against each other before anything registers.
+            var plan = ConversationScamPlan.New("moar-jury", "moar-scam-jury", "moar-jury-duty",
+                "Jury Duty", 475,
+                new[]
+                {
+                    new ScamObjectiveSpec { Id = "summons", Text = "Acknowledge the summons." },
+                    new ScamObjectiveSpec
+                    {
+                        Id = "confirm", Text = "Confirm the date.", Final = true,
+                        Prerequisites = new[] { "summons" },
+                    },
+                }, 3);
+            plan.Sentinels = new[]
+            {
+                SentinelSpec.Digits("FICTIONAL_MOAR_CASE_NO", "Case number", 120, "moar_jury_submit",
+                    new[] { 3, 3 }, "-"),
+            };
+            var planProblem = ContentValidation.CheckConversationScamPlan(plan);
+            var planOk = ContentRegistry.RegisterConversationScam(mod, plan);
+
+            // A whole form scam: the bank-login shape, from one completion source and one tag.
+            var formPlan = FormScamPlan.New("moar-tax-office", "moar-scam-tax", "moar_tax",
+                "Tax Rebate", "moar_tax_submit",
+                SentinelSpec.Digits("FICTIONAL_MOAR_TAX_ID", "Tax ID", 250, "moar_tax_submit",
+                    new[] { 2, 2 }, "-"),
+                new[]
+                {
+                    new OsFormFieldSpec
+                    {
+                        Id = "tax-id", Label = "Tax ID", ItemId = "FICTIONAL_MOAR_TAX_ID", Required = true,
+                    },
+                }, 3);
+            var formPlanProblem = ContentValidation.CheckFormScamPlan(formPlan);
+            var formPlanOk = ContentRegistry.RegisterFormScam(mod, formPlan);
+
+            // Poking the computer that is on screen right now. All of it is false when it is not.
+            var computerOpen = ModDesktop.IsOpen;
+            var notified = ModDesktop.Notify(mod, "Someone is watching.");
+            var fancyNotified = ModDesktop.Notify(mod, "Someone is watching.",
+                "KolkataOS/SVG/phone-classic", "#BB4B55", delegate { });
+            var opened = ModDesktop.OpenApp(mod, "scamazon");
+            var appOpen = ModDesktop.IsAppOpen("scamazon");
+        }
+
+        private static void DrawGame(VisualElement root)
+        {
+            root.Add(new Label("mod-drawn app"));
+        }
+
         // ---- Widgets a page can be built from --------------------------------------
 
         private static void BuildPage(VisualElement page)
